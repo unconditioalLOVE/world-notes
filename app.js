@@ -131,7 +131,7 @@
   function applyTf() {
     const { x, y, k } = state.transform;
     svg.select('.world').attr('transform', `translate(${x},${y}) scale(${k})`);
-    svg.selectAll('.country').attr('stroke-width', 0.5 / k);
+    svg.selectAll('.country').attr('stroke-width', 0.7 / k);
     svg.selectAll('.river').attr('stroke-width', 1.05 / k);
     // keep pin visual size constant on screen (never crushed)
     const pr = PIN_SCREEN_R / k;
