@@ -6,8 +6,9 @@
     layers: [],
     activeLayerId: null,
     selectedPinId: null,
-    drawMode: false,
-    tool: 'pen',
+    // modes: none | draw | pin
+    mode: 'none',
+    tool: 'pen', // pen | eraser-normal | eraser-stroke
     color: '#1a1a1a',
     strokeWidth: 3,
     transform: { x: 0, y: 0, k: 1 },
@@ -21,37 +22,44 @@
     height: 0,
     countryFeatures: null,
     riverFeatures: null,
-    // gesture
-    ptr: null, // { id, x, y, t, moved, ox, oy }
+    ptr: null,
   };
 
   const STORAGE = 'world-notes-v3';
   const TAP_DIST = 12;
   const TAP_MS = 320;
+  // visual pin radius in screen px (kept roughly constant across zoom)
+  const PIN_SCREEN_R = 3.2;
 
   const svg = d3.select('#map-svg');
   const canvas = document.getElementById('draw-canvas');
   const ctx = canvas.getContext('2d');
   const container = document.getElementById('map-container');
   const toastEl = document.getElementById('toast');
+  const modeHint = document.getElementById('mode-hint');
 
-  // ---------- storage ----------
+  // ---------- storage (migrate old keys if present) ----------
   function load() {
     try {
-      const d = JSON.parse(localStorage.getItem(STORAGE) || '{}');
-      state.pins = d.pins || [];
-      state.layers = d.layers || [];
-      if (!state.layers.length) {
-        const id = 'L' + Date.now();
-        state.layers = [{ id, name: 'メモ', visible: true, strokes: [] }];
-        state.activeLayerId = id;
-      } else {
-        state.activeLayerId = state.layers[0].id;
+      let raw = localStorage.getItem(STORAGE);
+      if (!raw) {
+        // try older keys
+        raw = localStorage.getItem('world-notes-v2') || localStorage.getItem('world-notes-v1');
       }
+      const d = raw ? JSON.parse(raw) : {};
+      state.pins = Array.isArray(d.pins) ? d.pins : [];
+      state.layers = Array.isArray(d.layers) && d.layers.length
+        ? d.layers
+        : [{ id: 'L' + Date.now(), name: 'メモ', visible: true, strokes: [] }];
+      // ensure strokes array
+      state.layers.forEach(l => { if (!Array.isArray(l.strokes)) l.strokes = []; });
+      state.activeLayerId = state.layers[0].id;
+      // persist under current key
+      save();
     } catch {
-      const id = 'L' + Date.now();
-      state.layers = [{ id, name: 'メモ', visible: true, strokes: [] }];
-      state.activeLayerId = id;
+      state.layers = [{ id: 'L' + Date.now(), name: 'メモ', visible: true, strokes: [] }];
+      state.activeLayerId = state.layers[0].id;
+      state.pins = [];
     }
   }
 
@@ -62,7 +70,7 @@
         layers: state.layers
       }));
     } catch {
-      showToast('保存失敗（容量オーバーの可能性）');
+      showToast('保存に失敗しました');
     }
   }
 
@@ -86,31 +94,35 @@
     svg.selectAll('*').remove();
     const g = svg.append('g').attr('class', 'world');
 
-    // countries (no pointer events)
+    // All countries from GeoJSON – no filtering
+    const feats = (state.countryFeatures && state.countryFeatures.features) || [];
     g.append('g').attr('class', 'countries')
       .selectAll('path')
-      .data(state.countryFeatures.features)
+      .data(feats)
       .join('path')
       .attr('class', 'country')
-      .attr('d', state.pathGen);
+      .attr('d', state.pathGen)
+      .attr('data-name', d => d.properties?.name || d.properties?.admin || '')
+      .attr('data-iso', d => (d.properties?.iso_a2 || '').toUpperCase());
 
-    // rivers
+    const rFeats = (state.riverFeatures && state.riverFeatures.features) || [];
     g.append('g').attr('class', 'rivers')
       .selectAll('path')
-      .data(state.riverFeatures.features)
+      .data(rFeats)
       .join('path')
       .attr('class', 'river')
       .attr('d', state.pathGen);
 
-    // pins
     const pg = g.append('g').attr('class', 'pins');
     state.pins.forEach(p => {
       const node = pg.append('g')
-        .attr('class', 'pin')
+        .attr('class', 'pin' + (p.id === state.selectedPinId ? ' selected' : ''))
         .attr('data-id', p.id)
         .attr('transform', `translate(${p.x},${p.y})`);
-      node.append('circle').attr('r', 8).attr('fill', '#1a1a1a').attr('stroke', '#fff').attr('stroke-width', 1.8);
-      node.append('circle').attr('r', 2.8).attr('fill', '#fff');
+      // tiny dot only – radius adjusted by scale so screen size stays stable
+      node.append('circle')
+        .attr('class', 'pin-dot')
+        .attr('r', PIN_SCREEN_R);
     });
 
     applyTf();
@@ -119,8 +131,11 @@
   function applyTf() {
     const { x, y, k } = state.transform;
     svg.select('.world').attr('transform', `translate(${x},${y}) scale(${k})`);
-    svg.selectAll('.country').attr('stroke-width', 0.55 / k);
+    svg.selectAll('.country').attr('stroke-width', 0.5 / k);
     svg.selectAll('.river').attr('stroke-width', 1.05 / k);
+    // keep pin visual size roughly constant on screen
+    svg.selectAll('.pin-dot').attr('r', PIN_SCREEN_R / k);
+    svg.selectAll('.pin-dot').attr('stroke-width', (1 / k));
     redraw();
   }
 
@@ -145,53 +160,49 @@
       if (!layer.visible) return;
       (layer.strokes || []).forEach(s => {
         if (!s.points || s.points.length < 2) return;
-        ctx.beginPath();
-        ctx.lineWidth = s.width;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        if (s.type === 'eraser') {
-          ctx.globalCompositeOperation = 'destination-out';
-          ctx.strokeStyle = '#000';
-        } else {
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.strokeStyle = s.color || '#1a1a1a';
-        }
-        ctx.moveTo(s.points[0][0], s.points[0][1]);
-        for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i][0], s.points[i][1]);
-        ctx.stroke();
+        drawStroke(ctx, s);
       });
     });
 
-    // current
-    const cur = state.currentStroke;
-    if (cur && cur.points.length > 1) {
-      ctx.beginPath();
-      ctx.lineWidth = cur.width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      if (cur.type === 'eraser') {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = '#000';
-      } else {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = cur.color;
-      }
-      ctx.moveTo(cur.points[0][0], cur.points[0][1]);
-      for (let i = 1; i < cur.points.length; i++) ctx.lineTo(cur.points[i][0], cur.points[i][1]);
-      ctx.stroke();
+    if (state.currentStroke && state.currentStroke.points.length > 1) {
+      drawStroke(ctx, state.currentStroke);
     }
     ctx.restore();
   }
 
+  function drawStroke(c, s) {
+    c.beginPath();
+    c.lineWidth = s.width;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    if (s.type === 'eraser' || s.type === 'eraser-normal') {
+      c.globalCompositeOperation = 'destination-out';
+      c.strokeStyle = '#000';
+    } else {
+      c.globalCompositeOperation = 'source-over';
+      c.strokeStyle = s.color || '#1a1a1a';
+    }
+    c.moveTo(s.points[0][0], s.points[0][1]);
+    for (let i = 1; i < s.points.length; i++) c.lineTo(s.points[i][0], s.points[i][1]);
+    c.stroke();
+  }
+
   function strokeStart(sx, sy) {
+    if (state.mode !== 'draw') return;
+    if (state.tool === 'eraser-stroke') {
+      // stroke erase: find nearest stroke and remove whole stroke
+      eraseWholeStrokeNear(sx, sy);
+      return;
+    }
     const layer = activeLayer();
     if (!layer) return;
     state.isDrawing = true;
+    const type = (state.tool === 'eraser-normal') ? 'eraser-normal' : 'pen';
     state.currentStroke = {
       points: [toMap(sx, sy)],
       color: state.color,
       width: state.strokeWidth,
-      type: state.tool
+      type
     };
   }
 
@@ -202,12 +213,15 @@
   }
 
   function strokeEnd() {
-    if (!state.isDrawing || !state.currentStroke) return;
+    if (!state.isDrawing || !state.currentStroke) {
+      state.isDrawing = false;
+      state.currentStroke = null;
+      return;
+    }
     state.isDrawing = false;
     const layer = activeLayer();
     if (layer && state.currentStroke.points.length > 1) {
-      state.undoStack.push({ layerId: layer.id, stroke: JSON.parse(JSON.stringify(state.currentStroke)) });
-      state.redoStack = [];
+      pushUndo({ type: 'add-stroke', layerId: layer.id, stroke: JSON.parse(JSON.stringify(state.currentStroke)) });
       layer.strokes.push(state.currentStroke);
       save();
     }
@@ -215,36 +229,121 @@
     redraw();
   }
 
-  function undo() {
-    const u = state.undoStack.pop();
-    if (!u) return;
-    const layer = state.layers.find(l => l.id === u.layerId);
-    if (layer && layer.strokes.length) {
-      state.redoStack.push({ layerId: layer.id, stroke: layer.strokes.pop() });
+  function distPointToSeg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+
+  function eraseWholeStrokeNear(sx, sy) {
+    const layer = activeLayer();
+    if (!layer || !layer.strokes.length) return;
+    const [mx, my] = toMap(sx, sy);
+    // threshold in map units (roughly ~12 screen px)
+    const thr = 12 / state.transform.k;
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    layer.strokes.forEach((s, idx) => {
+      if (!s.points || s.points.length < 2) return;
+      // skip pure eraser strokes for stroke-delete targeting? allow all
+      for (let i = 1; i < s.points.length; i++) {
+        const d = distPointToSeg(
+          mx, my,
+          s.points[i - 1][0], s.points[i - 1][1],
+          s.points[i][0], s.points[i][1]
+        );
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = idx;
+        }
+      }
+    });
+    if (bestIdx >= 0 && bestDist <= thr) {
+      const removed = layer.strokes.splice(bestIdx, 1)[0];
+      pushUndo({ type: 'remove-stroke', layerId: layer.id, stroke: removed, index: bestIdx });
       save();
       redraw();
     }
+  }
+
+  function clearActiveLayer() {
+    const layer = activeLayer();
+    if (!layer) return;
+    if (!layer.strokes.length) {
+      showToast('消す線がありません');
+      return;
+    }
+    if (!confirm('このレイヤーの線をすべて消しますか？')) return;
+    const snapshot = JSON.parse(JSON.stringify(layer.strokes));
+    pushUndo({ type: 'clear-layer', layerId: layer.id, strokes: snapshot });
+    layer.strokes = [];
+    save();
+    redraw();
+    showToast('レイヤーの線をすべて消しました');
+  }
+
+  function pushUndo(action) {
+    state.undoStack.push(action);
+    state.redoStack = [];
+  }
+
+  function undo() {
+    const a = state.undoStack.pop();
+    if (!a) return;
+    const layer = state.layers.find(l => l.id === a.layerId);
+    if (!layer) return;
+    if (a.type === 'add-stroke') {
+      // remove last matching or last stroke
+      if (layer.strokes.length) {
+        const removed = layer.strokes.pop();
+        state.redoStack.push({ type: 'add-stroke', layerId: layer.id, stroke: removed });
+      }
+    } else if (a.type === 'remove-stroke') {
+      const idx = Math.min(a.index, layer.strokes.length);
+      layer.strokes.splice(idx, 0, a.stroke);
+      state.redoStack.push({ type: 'remove-stroke', layerId: layer.id, stroke: a.stroke, index: idx });
+    } else if (a.type === 'clear-layer') {
+      layer.strokes = a.strokes;
+      state.redoStack.push({ type: 'clear-layer', layerId: layer.id, strokes: [] });
+    }
+    save();
+    redraw();
   }
 
   function redo() {
-    const r = state.redoStack.pop();
-    if (!r) return;
-    const layer = state.layers.find(l => l.id === r.layerId);
-    if (layer) {
-      layer.strokes.push(r.stroke);
-      state.undoStack.push(r);
-      save();
-      redraw();
+    const a = state.redoStack.pop();
+    if (!a) return;
+    const layer = state.layers.find(l => l.id === a.layerId);
+    if (!layer) return;
+    if (a.type === 'add-stroke') {
+      layer.strokes.push(a.stroke);
+      state.undoStack.push(a);
+    } else if (a.type === 'remove-stroke') {
+      // remove again
+      const idx = layer.strokes.findIndex(s => s === a.stroke);
+      if (idx >= 0) layer.strokes.splice(idx, 1);
+      else if (layer.strokes.length) layer.strokes.pop();
+      state.undoStack.push(a);
+    } else if (a.type === 'clear-layer') {
+      // redo clear = clear again (strokes already empty in redo payload)
+      const snapshot = JSON.parse(JSON.stringify(layer.strokes));
+      state.undoStack.push({ type: 'clear-layer', layerId: layer.id, strokes: snapshot });
+      layer.strokes = [];
     }
+    save();
+    redraw();
   }
 
-  // ---------- gestures (pan first) ----------
+  // ---------- gestures ----------
   function onDown(e) {
     const t = e.touches ? e.touches[0] : e;
     if (!t) return;
     if (e.touches && e.touches.length > 1) return;
 
-    if (state.drawMode) {
+    if (state.mode === 'draw') {
       strokeStart(t.clientX, t.clientY);
       return;
     }
@@ -262,7 +361,7 @@
     const t = e.touches ? e.touches[0] : e;
     if (!t) return;
 
-    if (state.drawMode && state.isDrawing) {
+    if (state.mode === 'draw' && state.isDrawing) {
       strokeMove(t.clientX, t.clientY);
       return;
     }
@@ -280,7 +379,7 @@
   }
 
   function onUp(e) {
-    if (state.drawMode) {
+    if (state.mode === 'draw') {
       strokeEnd();
       return;
     }
@@ -295,36 +394,74 @@
   }
 
   function handleTap(sx, sy) {
+    // pin placement mode
+    if (state.mode === 'pin') {
+      placePin(sx, sy);
+      return;
+    }
+
+    // only select pins when not drawing
+    if (state.mode === 'draw') return;
+
     const [mx, my] = toMap(sx, sy);
-    const hit = state.pins.find(p => Math.hypot(p.x - mx, p.y - my) < 18 / state.transform.k);
+    const thr = (PIN_SCREEN_R + 10) / state.transform.k;
+    const hit = state.pins.find(p => Math.hypot(p.x - mx, p.y - my) < thr);
     if (hit) openPin(hit);
   }
 
-  // ---------- pins ----------
-  function addPin(sx, sy) {
+  function placePin(sx, sy) {
     const [x, y] = toMap(sx, sy);
     const pin = { id: 'P' + Date.now(), x, y, title: '', memo: '' };
     state.pins.push(pin);
     save();
+    setMode('none');
     renderMap();
     openPin(pin);
-    showToast('ピンを追加しました');
   }
 
+  // ---------- modes ----------
+  function setMode(m) {
+    state.mode = m;
+    state.isDrawing = false;
+    state.currentStroke = null;
+
+    container.classList.toggle('drawing', m === 'draw');
+    container.classList.toggle('pinning', m === 'pin');
+    container.style.cursor = (m === 'draw' || m === 'pin') ? 'crosshair' : 'grab';
+
+    document.getElementById('btn-draw-mode').classList.toggle('active', m === 'draw');
+    document.getElementById('btn-pin-mode').classList.toggle('active', m === 'pin');
+    document.getElementById('draw-tools').classList.toggle('hidden', m !== 'draw');
+
+    if (m === 'pin') {
+      modeHint.textContent = '地図をタップしてピンを置く';
+      modeHint.classList.remove('hidden');
+    } else if (m === 'draw') {
+      modeHint.textContent = '描画モード';
+      modeHint.classList.remove('hidden');
+    } else {
+      modeHint.classList.add('hidden');
+    }
+  }
+
+  // ---------- pins UI ----------
   function openPin(pin) {
+    if (state.mode === 'draw') return; // hard separation
     state.selectedPinId = pin.id;
     document.getElementById('memo-title').textContent = pin.title || 'ピンメモ';
     document.getElementById('pin-title').value = pin.title || '';
     document.getElementById('pin-memo').value = pin.memo || '';
     document.getElementById('memo-panel').classList.remove('hidden');
+    renderMap();
   }
 
   function closePin() {
     state.selectedPinId = null;
     document.getElementById('memo-panel').classList.add('hidden');
+    renderMap();
   }
 
-  // ---------- zoom ----------
+  // ---------- zoom / touch ----------
   function onWheel(e) {
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY;
@@ -344,6 +481,7 @@
         e.touches[0].clientY - e.touches[1].clientY
       );
       state.ptr = null;
+      state.isDrawing = false;
     } else if (e.touches.length === 1) {
       onDown(e);
     }
@@ -377,12 +515,23 @@
     if (e.touches.length === 0) onUp(e);
   }
 
-  // ---------- UI ----------
+  // ---------- UI helpers ----------
   function showToast(msg) {
     toastEl.textContent = msg;
     toastEl.classList.remove('hidden');
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => toastEl.classList.add('hidden'), 2000);
+  }
+
+  function eyeIcon(visible) {
+    if (visible) {
+      return '<svg viewBox="0 0 24 24" class="icon"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+    }
+    return '<svg viewBox="0 0 24 24" class="icon"><path d="M3 3l18 18M10.5 10.6A2.5 2.5 0 0013.4 13.5M6.7 6.8C4.3 8.3 2 12 2 12s4 6 10 6c1.6 0 3.1-.4 4.4-1M14 6.2c2.2.7 4.3 2.3 6 5.8 0 0-1.2 1.8-3 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  }
+
+  function xIcon() {
+    return '<svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   }
 
   function renderLayers() {
@@ -392,9 +541,9 @@
       const div = document.createElement('div');
       div.className = 'layer-item' + (layer.id === state.activeLayerId ? ' active' : '');
       div.innerHTML = `
-        <button class="eye ${layer.visible ? 'visible' : ''}" data-id="${layer.id}">${layer.visible ? '👁' : '👁‍🗨'}</button>
+        <button class="eye ${layer.visible ? 'visible' : ''}" data-id="${layer.id}" title="表示切替">${eyeIcon(layer.visible)}</button>
         <input type="text" value="${esc(layer.name)}" data-id="${layer.id}" class="lname" />
-        <button class="delete-layer" data-id="${layer.id}">×</button>`;
+        <button class="delete-layer" data-id="${layer.id}" title="削除">${xIcon()}</button>`;
       div.onclick = (e) => {
         if (e.target.closest('button') || e.target.closest('input')) return;
         state.activeLayerId = layer.id;
@@ -428,37 +577,40 @@
   }
 
   function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function setTool(tool) {
+    state.tool = tool;
+    document.getElementById('btn-pen').classList.toggle('active', tool === 'pen');
+    document.getElementById('btn-eraser-normal').classList.toggle('active', tool === 'eraser-normal');
+    document.getElementById('btn-eraser-stroke').classList.toggle('active', tool === 'eraser-stroke');
   }
 
   function bind() {
     document.getElementById('btn-draw-mode').onclick = () => {
-      state.drawMode = !state.drawMode;
-      document.getElementById('btn-draw-mode').classList.toggle('active', state.drawMode);
-      document.getElementById('draw-tools').classList.toggle('hidden', !state.drawMode);
-      container.classList.toggle('drawing', state.drawMode);
-      container.style.cursor = state.drawMode ? 'crosshair' : 'grab';
-      showToast(state.drawMode ? '描画モード ON' : '描画モード OFF');
+      setMode(state.mode === 'draw' ? 'none' : 'draw');
+      if (state.mode === 'draw') setTool('pen');
     };
 
-    document.getElementById('btn-pen').onclick = () => {
-      state.tool = 'pen';
-      document.getElementById('btn-pen').classList.add('active');
-      document.getElementById('btn-eraser').classList.remove('active');
+    document.getElementById('btn-pin-mode').onclick = () => {
+      // cannot place pins while drawing
+      if (state.mode === 'draw') setMode('none');
+      setMode(state.mode === 'pin' ? 'none' : 'pin');
     };
-    document.getElementById('btn-eraser').onclick = () => {
-      state.tool = 'eraser';
-      document.getElementById('btn-eraser').classList.add('active');
-      document.getElementById('btn-pen').classList.remove('active');
+
+    document.getElementById('btn-pen').onclick = () => setTool('pen');
+    document.getElementById('btn-eraser-normal').onclick = () => setTool('eraser-normal');
+    document.getElementById('btn-eraser-stroke').onclick = () => setTool('eraser-stroke');
+    document.getElementById('btn-eraser-all').onclick = () => {
+      if (state.mode !== 'draw') setMode('draw');
+      clearActiveLayer();
     };
-    document.getElementById('color-picker').oninput = e => state.color = e.target.value;
-    document.getElementById('stroke-width').oninput = e => state.strokeWidth = +e.target.value;
+
+    document.getElementById('color-picker').oninput = e => { state.color = e.target.value; };
+    document.getElementById('stroke-width').oninput = e => { state.strokeWidth = +e.target.value; };
     document.getElementById('btn-undo').onclick = undo;
     document.getElementById('btn-redo').onclick = redo;
-
-    document.getElementById('btn-add-pin').onclick = () => {
-      addPin(state.width / 2, state.height / 2);
-    };
 
     document.getElementById('btn-layers').onclick = () => {
       document.getElementById('layer-panel').classList.toggle('hidden');
@@ -483,6 +635,7 @@
     document.getElementById('btn-close-memo').onclick = closePin;
 
     document.getElementById('btn-save-pin').onclick = () => {
+      if (state.mode === 'draw') return;
       const pin = state.pins.find(p => p.id === state.selectedPinId);
       if (!pin) return;
       pin.title = document.getElementById('pin-title').value.trim();
@@ -490,18 +643,16 @@
       save();
       showToast('保存しました');
       closePin();
-      renderMap();
     };
 
     document.getElementById('btn-delete-pin').onclick = () => {
+      if (state.mode === 'draw') return;
       state.pins = state.pins.filter(p => p.id !== state.selectedPinId);
       save();
       closePin();
-      renderMap();
       showToast('ピンを削除しました');
     };
 
-    // events
     container.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -509,12 +660,7 @@
     container.addEventListener('touchstart', onTouchStart, { passive: false });
     container.addEventListener('touchmove', onTouchMove, { passive: false });
     container.addEventListener('touchend', onTouchEnd);
-
-    window.addEventListener('resize', () => {
-      size();
-      proj();
-      renderMap();
-    });
+    window.addEventListener('resize', () => { size(); proj(); renderMap(); });
   }
 
   // ---------- boot ----------
@@ -524,12 +670,20 @@
     proj();
 
     try {
+      // Full 110m countries – includes Angola, Argentina, Albania etc.
       const [countries, rivers] = await Promise.all([
         d3.json('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson'),
         d3.json('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_rivers_lake_centerlines.geojson')
       ]);
       state.countryFeatures = countries;
       state.riverFeatures = rivers;
+
+      // sanity log
+      const names = (countries.features || []).map(f => f.properties?.name || f.properties?.admin);
+      const needed = ['Angola', 'Argentina', 'Albania'];
+      const missing = needed.filter(n => !names.some(x => x && x.toLowerCase() === n.toLowerCase()));
+      if (missing.length) console.warn('Missing countries in source:', missing);
+      else console.log('Countries OK:', needed.join(', '), 'present. Total:', countries.features.length);
     } catch (err) {
       console.error(err);
       showToast('地図データの読み込みに失敗しました');
