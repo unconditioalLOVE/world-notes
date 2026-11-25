@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>WORLD NOTES</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Map container -->
+    <div id="map-container">
+      <svg id="map-svg"></svg>
+      <canvas id="draw-canvas"></canvas>
+    </div>
+
+    <!-- Top toolbar -->
+    <div id="toolbar">
+      <button id="btn-draw-mode" class="tool-btn" title="描画モード">✏️</button>
+      <div id="draw-tools" class="hidden">
+        <button id="btn-pen" class="tool-btn active" title="ペン">🖊️</button>
+        <button id="btn-eraser" class="tool-btn" title="消しゴム">🩹</button>
+        <input type="color" id="color-picker" value="#1a1a1a" title="色" />
+        <input type="range" id="stroke-width" min="1" max="20" value="3" title="太さ" />
+        <button id="btn-undo" class="tool-btn" title="元に戻す">↩️</button>
+        <button id="btn-redo" class="tool-btn" title="やり直し">↪️</button>
+      </div>
+      <button id="btn-layers" class="tool-btn" title="レイヤー">📚</button>
+      <button id="btn-reset-view" class="tool-btn" title="表示リセット">🏠</button>
+    </div>
+
+    <!-- Layer panel -->
+    <div id="layer-panel" class="panel hidden">
+      <div class="panel-header">
+        <h3>レイヤー</h3>
+        <button id="btn-close-layers" class="close-btn">×</button>
+      </div>
+      <div id="layer-list"></div>
+      <button id="btn-add-layer" class="primary-btn">＋ レイヤー追加</button>
+    </div>
+
+    <!-- Memo panel -->
+    <div id="memo-panel" class="panel hidden">
+      <div class="panel-header">
+        <h3 id="memo-country-name">国名</h3>
+        <button id="btn-close-memo" class="close-btn">×</button>
+      </div>
+      <div class="memo-section">
+        <label>国のメモ</label>
+        <textarea id="country-memo" placeholder="この国についてのメモを書く..."></textarea>
+        <div class="btn-row">
+          <button id="btn-save-country" class="primary-btn">保存</button>
+          <button id="btn-delete-country" class="danger-btn">削除</button>
+        </div>
+      </div>
+      <div class="memo-section">
+        <div class="section-header">
+          <label>都市メモ</label>
+          <button id="btn-add-city" class="small-btn">＋ 都市を追加</button>
+        </div>
+        <div id="city-list"></div>
+      </div>
+    </div>
+
+    <!-- Status / toast -->
+    <div id="toast" class="hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
