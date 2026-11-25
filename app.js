@@ -10,7 +10,7 @@
     mode: 'none',
     tool: 'pen', // pen | eraser-normal | eraser-stroke
     color: '#1a1a1a',
-    strokeWidth: 3,
+    strokeWidth: 2,
     transform: { x: 0, y: 0, k: 1 },
     isDrawing: false,
     currentStroke: null,
@@ -23,6 +23,7 @@
     countryFeatures: null,
     riverFeatures: null,
     ptr: null,
+    showRivers: true,
   };
 
   const STORAGE = 'world-notes-v3';
@@ -106,7 +107,7 @@
       .attr('data-iso', d => (d.properties?.iso_a2 || '').toUpperCase());
 
     const rFeats = (state.riverFeatures && state.riverFeatures.features) || [];
-    g.append('g').attr('class', 'rivers')
+    g.append('g').attr('class', 'rivers' + (state.showRivers ? '' : ' hidden'))
       .selectAll('path')
       .data(rFeats)
       .join('path')
@@ -119,10 +120,9 @@
         .attr('class', 'pin' + (p.id === state.selectedPinId ? ' selected' : ''))
         .attr('data-id', p.id)
         .attr('transform', `translate(${p.x},${p.y})`);
-      // tiny dot only – radius adjusted by scale so screen size stays stable
-      node.append('circle')
-        .attr('class', 'pin-dot')
-        .attr('r', PIN_SCREEN_R);
+      // outer white ring + black core (screen-stable size via applyTf)
+      node.append('circle').attr('class', 'pin-halo').attr('r', PIN_SCREEN_R + 1.2);
+      node.append('circle').attr('class', 'pin-dot').attr('r', PIN_SCREEN_R);
     });
 
     applyTf();
@@ -133,9 +133,11 @@
     svg.select('.world').attr('transform', `translate(${x},${y}) scale(${k})`);
     svg.selectAll('.country').attr('stroke-width', 0.5 / k);
     svg.selectAll('.river').attr('stroke-width', 1.05 / k);
-    // keep pin visual size roughly constant on screen
-    svg.selectAll('.pin-dot').attr('r', PIN_SCREEN_R / k);
-    svg.selectAll('.pin-dot').attr('stroke-width', (1 / k));
+    // keep pin visual size constant on screen (never crushed)
+    const pr = PIN_SCREEN_R / k;
+    const hr = (PIN_SCREEN_R + 1.2) / k;
+    svg.selectAll('.pin-dot').attr('r', pr).attr('stroke-width', Math.max(0.8 / k, 0.15));
+    svg.selectAll('.pin-halo').attr('r', hr).attr('stroke-width', 0);
     redraw();
   }
 
@@ -474,15 +476,23 @@
   }
 
   let pinchDist = 0;
+  let pinchMid = null; // {x,y, ox, oy} for 2-finger pan
   function onTouchStart(e) {
     if (e.touches.length === 2) {
+      // always allow 2-finger pan/zoom, even in draw mode
+      state.isDrawing = false;
+      state.currentStroke = null;
+      state.ptr = null;
       pinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      state.ptr = null;
-      state.isDrawing = false;
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      pinchMid = { x: mx, y: my, ox: state.transform.x, oy: state.transform.y };
     } else if (e.touches.length === 1) {
+      pinchDist = 0;
+      pinchMid = null;
       onDown(e);
     }
   }
@@ -494,25 +504,42 @@
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+      // pan with two fingers
+      if (pinchMid) {
+        state.transform.x = pinchMid.ox + (mx - pinchMid.x);
+        state.transform.y = pinchMid.oy + (my - pinchMid.y);
+      }
+
+      // pinch zoom toward midpoint
       if (pinchDist > 0) {
         const f = d / pinchDist;
-        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         const nk = Math.max(0.3, Math.min(20, state.transform.k * f));
         state.transform.x = mx - (mx - state.transform.x) * (nk / state.transform.k);
         state.transform.y = my - (my - state.transform.y) * (nk / state.transform.k);
         state.transform.k = nk;
-        applyTf();
+        // update baseline so next move is incremental
+        pinchDist = d;
+        pinchMid = { x: mx, y: my, ox: state.transform.x, oy: state.transform.y };
       }
-      pinchDist = d;
+      applyTf();
     } else if (e.touches.length === 1) {
       onMove(e);
     }
   }
 
   function onTouchEnd(e) {
-    if (e.touches.length < 2) pinchDist = 0;
+    if (e.touches.length < 2) {
+      pinchDist = 0;
+      pinchMid = null;
+    }
     if (e.touches.length === 0) onUp(e);
+    // if one finger remains after pinch, re-init ptr for continued pan
+    if (e.touches.length === 1 && state.mode !== 'draw') {
+      onDown(e);
+    }
   }
 
   // ---------- UI helpers ----------
@@ -608,7 +635,7 @@
     };
 
     document.getElementById('color-picker').oninput = e => { state.color = e.target.value; };
-    document.getElementById('stroke-width').oninput = e => { state.strokeWidth = +e.target.value; };
+    document.getElementById('stroke-width').oninput = e => { state.strokeWidth = Math.max(0.3, parseFloat(e.target.value) || 0.3); };
     document.getElementById('btn-undo').onclick = undo;
     document.getElementById('btn-redo').onclick = redo;
 
@@ -631,6 +658,17 @@
       state.transform = { x: 0, y: 0, k: 1 };
       applyTf();
     };
+
+    const riversBtn = document.getElementById('btn-rivers');
+    if (riversBtn) {
+      riversBtn.classList.toggle('active', state.showRivers);
+      riversBtn.onclick = () => {
+        state.showRivers = !state.showRivers;
+        riversBtn.classList.toggle('active', state.showRivers);
+        const rg = document.querySelector('.rivers');
+        if (rg) rg.classList.toggle('hidden', !state.showRivers);
+      };
+    }
 
     document.getElementById('btn-close-memo').onclick = closePin;
 
