@@ -119,27 +119,35 @@
     <!-- ===== ピンパネル ===== -->
     <div id="pin-panel" class="panel hidden">
       <div class="panel-header">
-        <h3 id="pin-head">ピン</h3>
+        <h3 id="pin-head" class="edit-only">ピンを編集</h3>
         <button id="btn-close-pin" class="close-btn" aria-label="閉じる">
           <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
       </div>
       <div class="panel-body">
-        <div class="memo-section">
-          <label>属性</label>
-          <div id="kind-chips" class="kind-chips edit-only"></div>
-          <div id="kind-badge" class="badge view-only"></div>
+        <!-- 閲覧：タイトルとメモだけ -->
+        <div class="view-card view-only">
+          <div id="pin-v-badge" class="badge hidden">首都</div>
+          <h2 id="pin-v-title"></h2>
+          <p id="pin-v-memo" class="hidden"></p>
         </div>
-        <div class="memo-section">
-          <label>タイトル</label>
-          <input type="text" id="pin-title" placeholder="タイトル" />
-        </div>
-        <div class="memo-section">
-          <label>メモ</label>
-          <textarea id="pin-memo" placeholder="ここにメモを書く..."></textarea>
-          <div class="btn-row edit-only">
-            <button id="btn-save-pin" class="primary-btn">保存</button>
-            <button id="btn-delete-pin" class="danger-btn">削除</button>
+        <!-- 編集 -->
+        <div class="edit-only">
+          <div class="memo-section">
+            <label>属性</label>
+            <div id="kind-chips" class="kind-chips"></div>
+          </div>
+          <div class="memo-section">
+            <label>タイトル</label>
+            <input type="text" id="pin-title" placeholder="タイトル" />
+          </div>
+          <div class="memo-section">
+            <label>メモ</label>
+            <textarea id="pin-memo" placeholder="ここにメモを書く..."></textarea>
+            <div class="btn-row">
+              <button id="btn-save-pin" class="primary-btn">保存</button>
+              <button id="btn-delete-pin" class="danger-btn">削除</button>
+            </div>
           </div>
         </div>
       </div>
@@ -148,23 +156,29 @@
     <!-- ===== 国メモパネル ===== -->
     <div id="country-panel" class="panel hidden">
       <div class="panel-header">
-        <h3 id="country-head">国</h3>
+        <h3 id="country-head" class="edit-only">国</h3>
         <button id="btn-close-country" class="close-btn" aria-label="閉じる">
           <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
       </div>
       <div class="panel-body">
-        <div class="memo-section">
-          <label>メモ</label>
-          <textarea id="country-memo" placeholder="この国についてのメモ..."></textarea>
-          <div class="btn-row edit-only">
-            <button id="btn-save-country" class="primary-btn">保存</button>
-          </div>
+        <div class="view-card view-only">
+          <h2 id="country-v-title"></h2>
+          <p id="country-v-memo" class="hidden"></p>
         </div>
-        <div class="memo-section edit-only">
-          <label>国全体の塗りパターン</label>
-          <div id="country-chips" class="chips wrap"></div>
-          <p class="note" id="country-layer-note"></p>
+        <div class="edit-only">
+          <div class="memo-section">
+            <label>メモ</label>
+            <textarea id="country-memo" placeholder="この国についてのメモ..."></textarea>
+            <div class="btn-row">
+              <button id="btn-save-country" class="primary-btn">保存</button>
+            </div>
+          </div>
+          <div class="memo-section">
+            <label>国全体の塗りパターン</label>
+            <div id="country-chips" class="chips wrap"></div>
+            <p class="note" id="country-layer-note"></p>
+          </div>
         </div>
       </div>
     </div>

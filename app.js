@@ -30,9 +30,7 @@
 
   const KINDS = [
     { id: 'normal',  name: '通常' },
-    { id: 'capital', name: '首都' },
-    { id: 'city',    name: '都市' },
-    { id: 'site',    name: '史跡' }
+    { id: 'capital', name: '首都' }
   ];
 
   const HINTS = {
@@ -190,7 +188,7 @@
       name: l.name || '無題',
       visible: l.visible !== false,
       strokes: (Array.isArray(l.strokes) ? l.strokes : []).filter(s => Array.isArray(s.pts) && s.pts.length > 1)
-        .map(s => ({ ...s, above: s.above !== false })),
+        .map(s => ({ ...s, above: s.above !== false, px: s.px > 0 ? s.px : clamp((s.width || 0.01) * (window.innerWidth / W), 1.5, 24) })),
       fills: Array.isArray(l.fills) ? l.fills.filter(f => f && (f.kind === 'country' || (f.kind === 'lasso' && Array.isArray(f.pts)))) : []
     }));
     state.countries = d.countries && typeof d.countries === 'object' ? d.countries : {};
@@ -370,18 +368,11 @@
 
   /* ---------- ピン ---------- */
   function pinShape(kind) {
-    switch (kind) {
-      case 'capital':
-        return '<circle class="halo" r="13"/><circle class="ring-out" r="9"/><circle class="dot" r="4.4"/>';
-      case 'city':
-        return '<circle class="halo" r="7.5"/><circle class="ring" r="4.8"/>';
-      case 'site':
-        return '<path class="halo" d="M0,-9 L9,0 L0,9 L-9,0Z"/><path class="dot" d="M0,-6 L6,0 L0,6 L-6,0Z"/>';
-      default:
-        return '<circle class="halo" r="6.8"/><circle class="dot" r="4"/>';
-    }
+    return kind === 'capital'
+      ? '<circle class="halo" r="6.8"/><circle class="cap" r="4"/>'
+      : '<circle class="halo" r="6.8"/><circle class="dot" r="4"/>';
   }
-  const pinR = kind => ({ capital: 13, city: 8, site: 9 }[kind] || 7);
+  const pinR = () => 7;
 
   function renderPins() {
     const root = svgPins.select('g.pins');
@@ -453,7 +444,7 @@
   function drawStroke(c, s) {
     const m = mpts(s);
     if (m.length < 2) return;
-    c.lineWidth = s.width;
+    c.lineWidth = s.px / state.transform.k;      // 画面上の太さを一定に保つ（拡大縮小しても同じ見た目）
     c.lineCap = 'round';
     c.lineJoin = 'round';
     if (s.type === 'eraser') { c.globalCompositeOperation = 'destination-out'; c.strokeStyle = '#000'; }
@@ -599,7 +590,7 @@
     cur = {
       type: eraser ? 'eraser' : 'pen',
       color: state.color,
-      width: px / state.transform.k,
+      px,
       above: state.side === 'above',
       m: [toMap(sx, sy)]
     };
@@ -622,7 +613,7 @@
     let m = s.m;
     if (m.length === 1) m = [m[0], [m[0][0] + 0.0005, m[0][1]]];
     const stroke = {
-      type: s.type, color: s.color, width: +s.width.toFixed(4), above: s.above,
+      type: s.type, color: s.color, px: s.px, above: s.above,
       pts: m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
     };
     mcache.set(stroke, m);
@@ -646,7 +637,7 @@
       if (s.type !== 'pen') return;
       const m = mpts(s);
       for (let i = 1; i < m.length; i++) {
-        const d = distPointToSeg(mx, my, m[i - 1][0], m[i - 1][1], m[i][0], m[i][1]) - s.width / 2;
+        const d = distPointToSeg(mx, my, m[i - 1][0], m[i - 1][1], m[i][0], m[i][1]) - s.px / 2 / state.transform.k;
         if (d < bd) { bd = d; best = s; }
       }
     });
@@ -907,14 +898,15 @@
   function openPin(pin) {
     closeMemo(true);
     state.selectedPinId = pin.id;
-    $('pin-head').textContent = pin.title || 'ピン';
+    // 編集用
     $('pin-title').value = pin.title;
     $('pin-memo').value = pin.memo;
-    $('pin-title').readOnly = !state.edit;
-    $('pin-memo').readOnly = !state.edit;
-    $('pin-title').placeholder = state.edit ? 'タイトル' : '（タイトルなし）';
-    $('pin-memo').placeholder = state.edit ? 'ここにメモを書く...' : '（メモなし）';
-    $('kind-badge').textContent = (KINDS.find(k => k.id === pin.kind) || KINDS[0]).name;
+    // 閲覧用：タイトルとメモだけ（メモが空なら出さない／通常属性は出さない）
+    $('pin-v-title').textContent = pin.title || '（無題）';
+    const memo = (pin.memo || '').trim();
+    $('pin-v-memo').textContent = pin.memo;
+    $('pin-v-memo').classList.toggle('hidden', !memo);
+    $('pin-v-badge').classList.toggle('hidden', pin.kind !== 'capital');
     markKinds();
     setPanel('pin');
     renderPins();
@@ -932,10 +924,11 @@
     closeMemo(true);
     state.selectedCountryKey = f._key;
     $('country-head').textContent = f._name;
+    $('country-v-title').textContent = f._name;
     const memo = (state.countries[f._key] || {}).memo || '';
     $('country-memo').value = memo;
-    $('country-memo').readOnly = !state.edit;
-    $('country-memo').placeholder = state.edit ? 'この国についてのメモ...' : '（メモなし）';
+    $('country-v-memo').textContent = memo;
+    $('country-v-memo').classList.toggle('hidden', !memo.trim());
     renderCountryChips();
     setPanel('country');
     renderHighlight();
@@ -1131,6 +1124,7 @@
     if (state.edit) save();
     closeMemo();                        // 閉じてから編集可否を切り替える
     state.edit = on;
+    if (on) state.tool = 'pin';          // 編集を開くたびに「ピン」から始める
     updateUI();
     if (state.panel === 'layer') renderLayers();
   }
@@ -1188,7 +1182,6 @@
     $('pin-title').addEventListener('input', () => {
       const p = curPin(); if (!p || !state.edit) return;
       p.title = $('pin-title').value;
-      $('pin-head').textContent = p.title || 'ピン';
       renderPins(); saveSoon();
     });
     $('pin-memo').addEventListener('input', () => {
