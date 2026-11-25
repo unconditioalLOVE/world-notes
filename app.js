@@ -9,40 +9,202 @@
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
   const TAP_MS = 600;
-  const PIN_HIT = 20;                   // ピンのタップ判定（画面px）
+  const PIN_HIT = 20;
+  const FILL_DEFAULT = '#111111';
+  const TROPIC = 23.4366;
+  const FONT = '600 100px -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif';
 
-  // 6種の模様：tile は画面px基準。ズームしても見た目の密度が変わらないよう patternTransform で補正する
+  // 6種の模様（色は currentColor）。tile は「基準ズーム」での大きさ。ズームに応じて2倍刻みで密度を切り替える
   const PATTERNS = [
     { id: 'diag',  name: '斜線', w: 7,  h: 7,
-      body: '<path d="M-1,8 L8,-1 M-1,1 L1,-1 M6,8 L8,6" stroke="#111" stroke-width="1" fill="none"/>' },
+      body: '<path d="M-1,8 L8,-1 M-1,1 L1,-1 M6,8 L8,6" stroke="currentColor" stroke-width="1" fill="none"/>' },
     { id: 'grid',  name: '格子', w: 9,  h: 9,
-      body: '<path d="M0,0.5 H9 M0.5,0 V9" stroke="#111" stroke-width="0.9" fill="none"/>' },
+      body: '<path d="M0,0.5 H9 M0.5,0 V9" stroke="currentColor" stroke-width="0.9" fill="none"/>' },
     { id: 'dots',  name: '小粒', w: 5,  h: 5,
-      body: '<circle cx="2.5" cy="2.5" r="0.9" fill="#111"/>' },
+      body: '<circle cx="2.5" cy="2.5" r="0.9" fill="currentColor"/>' },
     { id: 'hline', name: '横線', w: 5,  h: 5,
-      body: '<path d="M0,2.5 H5" stroke="#111" stroke-width="1" fill="none"/>' },
+      body: '<path d="M0,2.5 H5" stroke="currentColor" stroke-width="1" fill="none"/>' },
     { id: 'vline', name: '縦線', w: 5,  h: 5,
-      body: '<path d="M2.5,0 V5" stroke="#111" stroke-width="1" fill="none"/>' },
+      body: '<path d="M2.5,0 V5" stroke="currentColor" stroke-width="1" fill="none"/>' },
     { id: 'cross', name: '十字', w: 11, h: 11,
-      body: '<path d="M3.5,5.5 H7.5 M5.5,3.5 V7.5" stroke="#111" stroke-width="1" fill="none"/>' }
+      body: '<path d="M3.5,5.5 H7.5 M5.5,3.5 V7.5" stroke="currentColor" stroke-width="1" fill="none"/>' }
   ];
-  const patName = id => (PATTERNS.find(p => p.id === id) || {}).name || '';
 
   const KINDS = [
     { id: 'normal',  name: '通常' },
     { id: 'capital', name: '首都' }
   ];
 
-  const HINTS = {
-    'draw:pen':          () => `落書き（国境の${state.side === 'above' ? '上' : '下'}）— 1本指で描く／2本指で移動・拡大`,
-    'draw:eraser':       () => '消しゴム — なぞって消す（このレイヤーの線のみ）',
-    'draw:stroke-eraser':() => '線消し — 消したい線をなぞる',
-    'draw:lasso':        () => '投げ縄 — 国の内側を囲む（国境の外には塗れません）',
-    'draw:country-fill': () => '国塗り — 国をタップして模様で塗る',
-    'draw:fill-eraser':  () => '塗り消し — 塗りをタップして消す',
-    'pin':               () => '地図をタップしてピンを追加／ピンをタップして編集',
-    'country':           () => '国をタップして国メモを編集'
+  // サイズ（地図基準＝拡大縮小しても地図に対する大きさは変わらない）。スライダーは対数
+  const SIZE = {
+    pen:   { min: 0.05, max: 8 },
+    text:  { min: 0.1,  max: 60 },
+    stamp: { min: 0.3,  max: 60 }
   };
+
+  /* =========================================================
+   * スタンプ定義（24x24 のシルエット。f=主色 f2=副色 k=黒 w=白 s=線 ws=白線）
+   * ======================================================= */
+  const fx = n => +n.toFixed(2);
+  const C = (cx, cy, r) => `M${fx(cx - r)} ${cy}a${r} ${r} 0 1 0 ${fx(2 * r)} 0a${r} ${r} 0 1 0 ${fx(-2 * r)} 0Z`;
+  const E = (cx, cy, rx, ry, rot = 0) => {
+    const a = rot * Math.PI / 180, dx = rx * Math.cos(a), dy = rx * Math.sin(a);
+    const x1 = fx(cx - dx), y1 = fx(cy - dy), x2 = fx(cx + dx), y2 = fx(cy + dy);
+    return `M${x1} ${y1}A${rx} ${ry} ${rot} 1 0 ${x2} ${y2}A${rx} ${ry} ${rot} 1 0 ${x1} ${y1}Z`;
+  };
+  const wheat = (id, name, c) => ({
+    id, cat: 'agri', name, c,
+    shapes: [
+      ['s', 'M12 22V9', 1.5],
+      ['f', E(12, 3.9, 1.5, 2.7, 0)],
+      ['f', E(9.6, 7.3, 1.5, 2.7, -25)], ['f', E(14.4, 7.3, 1.5, 2.7, 25)],
+      ['f', E(9.6, 10.9, 1.5, 2.7, -25)], ['f', E(14.4, 10.9, 1.5, 2.7, 25)],
+      ['f', E(9.8, 14.5, 1.5, 2.7, -25)], ['f', E(14.2, 14.5, 1.5, 2.7, 25)]
+    ]
+  });
+  const cornDots = (() => {
+    let d = '';
+    [5.4, 8, 10.6, 13.2].forEach((y, i) => [10.3, 12, 13.7].forEach(x => { d += C(x, y + (i % 2 ? 0.6 : 0), 0.7); }));
+    return d;
+  })();
+
+  const STAMPS = [
+    // ---------- 農牧業 ----------
+    { id: 'rice', cat: 'agri', name: 'コメ', c: '#7d8f3a', shapes: [
+      ['s', 'M6 21C6.5 13 9.5 7 16.5 5', 1.5],
+      ['f', E(9.3, 15.2, 1.25, 2.4, 0)], ['f', E(12, 12.4, 1.25, 2.4, 0)], ['f', E(14.8, 10.2, 1.25, 2.4, 0)], ['f', E(17.4, 8.4, 1.25, 2.4, 0)],
+      ['f', E(8.2, 11.3, 1.2, 2.2, 25)], ['f', E(10.8, 8.4, 1.2, 2.2, 38)], ['f', E(13.8, 6.3, 1.2, 2.2, 50)]] },
+    wheat('wheat-s', '小麦(春)', '#79b05a'),
+    wheat('wheat-w', '小麦(冬)', '#c98a2b'),
+    { id: 'cane', cat: 'agri', name: 'サトウキビ', c: '#5b8f5a', c2: '#8fbf6a', shapes: [
+      ['f2', 'M13 7C17 4 20 5 22 8C19 8 16 8.5 13 10Z'],
+      ['f2', 'M9 11C6 9 4 9 2 11C5 12.5 7 12.5 9 13Z'],
+      ['f', 'M9 21V5Q9 4 10 4H13Q14 4 14 5V21Q14 22 13 22H10Q9 22 9 21Z'],
+      ['ws', 'M9 9H14M9 14H14M9 18.4H14', 1]] },
+    { id: 'cacao', cat: 'agri', name: 'カカオ', c: '#8a5a3c', c2: '#5b7a3c', shapes: [
+      ['f2', 'M11 1.8H13V4.6H11Z'],
+      ['f', E(12, 12.8, 5.2, 8.4, 0)],
+      ['ws', 'M12 5V20.6M9 6.6C7.8 10 7.8 15 9 18.6M15 6.6C16.2 10 16.2 15 15 18.6', 1]] },
+    { id: 'coffee', cat: 'agri', name: 'コーヒー豆', c: '#5a3a2a', shapes: [
+      ['f', E(12, 12, 6, 8.5, 25)],
+      ['ws', 'M15 5C10 9 14 14 9 19', 1.3]] },
+    { id: 'soy', cat: 'agri', name: '大豆', c: '#9aa23c', shapes: [
+      ['f', 'M3.5 16.5C3.5 12 9 8 14 7C17.5 6.5 20.5 8 20.5 11C20.5 15 14 19 9 19.5C5.5 19.8 3.5 18.8 3.5 16.5Z'],
+      ['w', C(7.6, 15.2, 2.2) + C(12.2, 12.5, 2.3) + C(16.6, 10.4, 2)]] },
+    { id: 'corn', cat: 'agri', name: 'トウモロコシ', c: '#e0b030', c2: '#6c9a4a', shapes: [
+      ['f2', 'M12 22C6 21 4 15 5 9C8 12 11 15 12 22Z'],
+      ['f2', 'M12 22C18 21 20 15 19 9C16 12 13 15 12 22Z'],
+      ['f', E(12, 10.5, 4, 7.5, 0)],
+      ['w', cornDots]] },
+    { id: 'cotton', cat: 'agri', name: '綿花', c: '#8ea6b9', c2: '#5b7a4a', shapes: [
+      ['f', C(8.2, 10, 4) + C(15.8, 10, 4) + C(12, 6.8, 4.2) + C(12, 12, 4.8)],
+      ['f2', 'M6 14.5L9 21.5L12 18.5L15 21.5L18 14.5C15 16.8 9 16.8 6 14.5Z']] },
+    { id: 'cow', cat: 'agri', name: '酪農(牛)', c: '#3a3a3a', c2: '#b9a98a', shapes: [
+      ['f2', 'M7.5 7C5.5 6 4 4.5 3.5 2.5C6 3 8.5 4.5 9.5 6.5Z'],
+      ['f2', 'M16.5 7C18.5 6 20 4.5 20.5 2.5C18 3 15.5 4.5 14.5 6.5Z'],
+      ['f', E(4.2, 10.5, 3, 1.6, -20)], ['f', E(19.8, 10.5, 3, 1.6, 20)],
+      ['f', 'M7.5 6.5C9 5 15 5 16.5 6.5C17.5 9 17 13 16 16C15 19 9 19 8 16C7 13 6.5 9 7.5 6.5Z'],
+      ['w', E(12, 17, 3.4, 2.6, 0) + C(9.8, 11, 0.9) + C(14.2, 11, 0.9)],
+      ['k', C(10.8, 17, 0.6) + C(13.2, 17, 0.6)]] },
+    { id: 'sheep', cat: 'agri', name: '羊', c: '#8d9bab', c2: '#3d3d3d', shapes: [
+      ['f', C(7, 10, 3.6) + C(12, 7.5, 4) + C(17, 10, 3.6) + C(8.5, 14.5, 3.6) + C(15.5, 14.5, 3.6) + C(12, 12, 4)],
+      ['f2', E(7.6, 17, 2.2, 1.1, -20) + E(16.4, 17, 2.2, 1.1, 20) + E(12, 17.5, 3, 4.2, 0)],
+      ['w', C(11, 16.6, 0.7) + C(13, 16.6, 0.7)]] },
+    { id: 'chicken', cat: 'agri', name: '鶏', c: '#b8763e', c2: '#c94b3b', shapes: [
+      ['f', 'M5 11C2.5 8.5 2.5 5.5 3.5 4C6 6 7.5 8 8.5 10Z'],
+      ['f', E(11.5, 14, 7, 5.2, -8)],
+      ['f', C(17.5, 8.5, 3)],
+      ['f2', C(16.2, 5.2, 1.2) + C(18, 4.8, 1.2) + C(19.6, 5.6, 1) + 'M20.2 8L23 9.2L20.2 10.2Z' + E(19.6, 11.4, 0.9, 1.4, 0)],
+      ['s', 'M10 18.5V22M13.5 18.5V22', 1.4],
+      ['ws', 'M8 14C10 16 13 16 15 13.5', 1],
+      ['w', C(18, 8, 0.7)]] },
+    { id: 'pig', cat: 'agri', name: '豚', c: '#d99a9a', c2: '#bd6f7a', shapes: [
+      ['f2', 'M4.5 5.5L10 6.5L7 11.5Z'], ['f2', 'M19.5 5.5L14 6.5L17 11.5Z'],
+      ['f', E(12, 13, 7.5, 6.8, 0)],
+      ['f2', E(12, 15.2, 3.8, 2.9, 0)],
+      ['w', C(10.6, 15.2, 0.7) + C(13.4, 15.2, 0.7)],
+      ['k', C(9, 11.3, 0.9) + C(15, 11.3, 0.9)]] },
+
+    // ---------- 工業 ----------
+    { id: 'plane', cat: 'ind', name: '航空機', c: '#3b5b7a', shapes: [
+      ['f', 'M12 2C13 2 13.5 3 13.5 5V9L22 14V16L13.5 13.5V18L16 20V22L12 21L8 22V20L10.5 18V13.5L2 16V14L10.5 9V5C10.5 3 11 2 12 2Z']] },
+    { id: 'car', cat: 'ind', name: '自動車', c: '#4a5560', c2: '#222222', shapes: [
+      ['f', 'M2.5 16V13C2.5 11.8 3.3 11 4.5 10.6L7.5 9.6L10 6.6C10.3 6.2 10.8 6 11.3 6H15.7C16.4 6 17 6.3 17.4 6.8L19.3 9.6C21 10 22 11.2 22 12.8V16Z'],
+      ['w', 'M10.6 7.6L8.9 9.6H12.2V7.6Z M13.4 7.6V9.6H17.4L16 7.6Z'],
+      ['f2', C(7, 16.6, 2.6) + C(17.5, 16.6, 2.6)],
+      ['w', C(7, 16.6, 1) + C(17.5, 16.6, 1)]] },
+    { id: 'rocket', cat: 'ind', name: '宇宙産業', c: '#4b4a8a', c2: '#c0583f', shapes: [
+      ['f2', 'M8 13L4 18V20L8 17Z M16 13L20 18V20L16 17Z M10 17L12 22L14 17Z'],
+      ['f', 'M12 2C15 5 16 9 16 13V16H8V13C8 9 9 5 12 2Z'],
+      ['w', C(12, 9, 1.8)]] },
+    { id: 'ict', cat: 'ind', name: 'ICT産業', c: '#2f6f7a', shapes: [
+      ['s', 'M3 9H6M3 12H6M3 15H6M18 9H21M18 12H21M18 15H21M9 3V6M12 3V6M15 3V6M9 18V21M12 18V21M15 18V21', 1.6],
+      ['f', 'M7 6H17Q18 6 18 7V17Q18 18 17 18H7Q6 18 6 17V7Q6 6 7 6Z'],
+      ['w', 'M9.5 9.5H14.5V14.5H9.5Z']] },
+    { id: 'cotton-ind', cat: 'ind', name: '綿工業', c: '#7a8fa3', c2: '#4d5b6a', shapes: [
+      ['f2', 'M5 3H19V5.2H5Z M5 18.8H19V21H5Z'],
+      ['f', 'M7.5 5H16.5V19H7.5Z'],
+      ['ws', 'M7.5 8.6L16.5 7M7.5 12L16.5 10.4M7.5 15.4L16.5 13.8', 1]] },
+    { id: 'wool-ind', cat: 'ind', name: '羊毛工業', c: '#8a6a45', shapes: [
+      ['s', 'M18 18C20 20 22 19.5 22.5 18', 1.3],
+      ['f', C(11.5, 12, 8)],
+      ['ws', 'M4.8 9C9.5 12 14.5 12 18.6 9M4.2 13C9.5 16 15 16 18.8 13M8 4.6C10 9 10 15 8 19.4', 1]] },
+    { id: 'petro', cat: 'ind', name: '石油化学', c: '#7a3b3b', shapes: [
+      ['f', 'M9.5 2.5H14.5V4.2H13.5V9.2L19.7 18.6C20.6 20 19.6 21.8 18 21.8H6C4.4 21.8 3.4 20 4.3 18.6L10.5 9.2V4.2H9.5Z'],
+      ['ws', 'M6.4 16H17.6', 1.1],
+      ['w', C(11, 18.8, 0.9) + C(13.6, 17.6, 0.7)]] },
+    { id: 'steel', cat: 'ind', name: '鉄鋼', c: '#5a6068', shapes: [
+      ['f', 'M4 4H20V8H14V16H20V20H4V16H10V8H4Z']] },
+
+    // ---------- 鉱産資源 ----------
+    { id: 'oil', cat: 'min', name: '油田', c: '#1a1a1a', shapes: [
+      ['f', 'M12 2C12 2 5 10 5 15A7 7 0 0 0 19 15C19 10 12 2 12 2Z'],
+      ['ws', 'M9 15C9 17 10 18 12 18.5', 1.3]] },
+    { id: 'coal', cat: 'min', name: '炭田', c: '#4a3f3a', shapes: [
+      ['f', 'M4.5 9.5L9 4L16 5L20 10L18.5 18L11 20L4.5 16Z'],
+      ['ws', 'M9 4L12 11L20 10M12 11L11 20M4.5 9.5L12 11', 1]] },
+    { id: 'gas', cat: 'min', name: 'ガス田', c: '#2a7f9e', shapes: [
+      ['f', 'M12 2C13 7 18 9 18 15A6 6 0 0 1 6 15C6 12 8 10 9 8C10 10 11 10 11.5 9C12 7 12 5 12 2Z'],
+      ['w', 'M12 12C13.5 14 15 15 15 17A3 3 0 0 1 9 17C9 15 11 14 12 12Z']] }
+  ];
+  const STAMP_BY = {};
+  STAMPS.forEach(s => { STAMP_BY[s.id] = s; });
+  const CATS = [
+    { id: 'agri', name: '農牧業' },
+    { id: 'ind',  name: '工業' },
+    { id: 'min',  name: '鉱産資源' }
+  ];
+
+  const spriteCache = {};
+  const spriteURLs = {};
+  function sprite(st) {
+    if (spriteCache[st.id]) return spriteCache[st.id];
+    const S = 256;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const x = cv.getContext('2d');
+    x.scale(S / 24, S / 24);
+    x.lineJoin = 'round';
+    x.lineCap = 'round';
+    const list = st.shapes.map(sh => ({ t: sh[0], p: new Path2D(sh[1]), w: sh[2] || 1.2 }));
+    list.forEach(({ t, p, w }) => {                      // 白い縁取り
+      if (t === 'w' || t === 'ws') return;
+      x.strokeStyle = '#fff'; x.fillStyle = '#fff';
+      if (t === 's') { x.lineWidth = w + 2.6; x.stroke(p); }
+      else { x.lineWidth = 2.6; x.fill(p); x.stroke(p); }
+    });
+    list.forEach(({ t, p, w }) => {
+      if (t === 'f') { x.fillStyle = st.c; x.fill(p); }
+      else if (t === 'f2') { x.fillStyle = st.c2 || st.c; x.fill(p); }
+      else if (t === 'k') { x.fillStyle = '#222'; x.fill(p); }
+      else if (t === 'w') { x.fillStyle = '#fff'; x.fill(p); }
+      else if (t === 's') { x.strokeStyle = st.c; x.lineWidth = w; x.stroke(p); }
+      else if (t === 'ws') { x.strokeStyle = '#fff'; x.lineWidth = w; x.stroke(p); }
+    });
+    spriteCache[st.id] = cv;
+    return cv;
+  }
+  const spriteURL = st => spriteURLs[st.id] || (spriteURLs[st.id] = sprite(st).toDataURL());
 
   /* =========================================================
    * 状態
@@ -50,19 +212,28 @@
   const state = {
     edit: false,
     tool: 'draw',            // draw | pin | country
-    sub: 'pen',              // pen | eraser | stroke-eraser | lasso | country-fill | fill-eraser
-    side: 'above',           // 落書きを国境の above / below に描く
-    viewTarget: 'pin',       // 通常時に見る対象 pin | country
+    sub: 'pen',              // pen | eraser | country-fill | lasso | text | stamp
+    eraser: 'normal',        // normal | stroke | fill | stamp
+    side: 'above',
+    landOnly: false,
+    viewTarget: 'pin',
     color: '#1a1a1a',
-    width: 3,                // 画面px
+    fillColor: FILL_DEFAULT,
     pattern: 'diag',
+    sizeT: { pen: 66, text: 68, stamp: 70 },
+    stamp: 'rice',
+    stampCat: 'agri',
+    stampMode: 'tap',        // tap | lasso
+    lassoKey: null,
     pins: [],
     layers: [],              // layers[0] が最上位
-    countries: {},           // key -> { memo }
+    countries: {},
+    guides: { equator: true, tropics: true },
     activeLayerId: null,
     selectedPinId: null,
     selectedCountryKey: null,
-    panel: null,             // null | layer | pin | country
+    textSel: null,           // { layer, t }
+    panel: null,
     transform: { x: 0, y: 0, k: 1 },
     k0: 1,
     undo: [],
@@ -74,15 +245,15 @@
   const container = $('map-container');
   const svgBase = d3.select('#svg-base');
   const svgLines = d3.select('#svg-lines');
+  const svgGuides = d3.select('#svg-guides');
   const svgPins = d3.select('#svg-pins');
-  const cBelow = $('canvas-below');
-  const cAbove = $('canvas-above');
+  const cBelow = $('canvas-below'), cAbove = $('canvas-above'), cTop = $('canvas-top');
   const xBelow = cBelow.getContext('2d');
   const xAbove = cAbove.getContext('2d');
-  const offA = document.createElement('canvas');
-  const offB = document.createElement('canvas');
-  const offA2 = offA.getContext('2d');
-  const offB2 = offB.getContext('2d');
+  const xTop = cTop.getContext('2d');
+  const offA = document.createElement('canvas'), offB = document.createElement('canvas');
+  const offA2 = offA.getContext('2d'), offB2 = offB.getContext('2d');
+  const tctx = document.createElement('canvas').getContext('2d');
 
   const projection = d3.geoMercator().scale(W / (2 * Math.PI)).translate([W / 2, W / 2]);
   const pathGen = d3.geoPath(projection);
@@ -94,6 +265,8 @@
   let dataReady = false;
   let cur = null;          // 描画中のストローク
   let lasso = null;        // 投げ縄中 {m:[], s:[]}
+  let lastPs = 0;
+  let clipCache = null;
   const mcache = new WeakMap();
 
   /* =========================================================
@@ -105,37 +278,40 @@
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const stampDef = () => STAMP_BY[state.stamp] || STAMPS[0];
+  const sizeKey = () => (state.sub === 'text' ? 'text' : state.sub === 'stamp' ? 'stamp' : 'pen');
+  const sizeVal = key => { const r = SIZE[key]; return r.min * Math.pow(r.max / r.min, state.sizeT[key] / 100); };
+  const needTarget = () => state.sub === 'lasso' || (state.sub === 'stamp' && stampDef().cat === 'agri' && state.stampMode === 'lasso');
 
   function showToast(msg) {
     const t = $('toast');
     t.textContent = msg;
     t.classList.remove('hidden');
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => t.classList.add('hidden'), 2200);
+    showToast._t = setTimeout(() => t.classList.add('hidden'), 2400);
   }
 
   let saveTimer = null;
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); }
 
   /* =========================================================
-   * 保存／読み込み（緯度経度で保存 → 画面サイズが変わってもズレない）
+   * 保存／読み込み
    * ======================================================= */
   function blankLayer(name) {
-    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [] };
+    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [], stamps: [], texts: [] };
   }
 
   function save() {
     clearTimeout(saveTimer);
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        v: 4, pins: state.pins, layers: state.layers, countries: state.countries
+        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides
       }));
     } catch {
       showToast('保存に失敗しました（容量不足の可能性）');
     }
   }
 
-  // 旧版(v3)は「その時の画面ピクセル座標」で保存されていた。現在の画面サイズで旧投影を再現して緯度経度に変換（ベストエフォート）
   function migrateOld(d) {
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
@@ -157,11 +333,10 @@
           type: s.type === 'pen' ? 'pen' : 'eraser',
           color: s.color || '#1a1a1a',
           width: +((s.width || 2) * ws).toFixed(3),
-          above: true,
-          pts
+          above: true, pts
         };
       }).filter(Boolean)
-    })).reverse();          // 旧版は配列の先頭が最下位だった
+    })).reverse();
     return { pins, layers, countries: {} };
   }
 
@@ -177,21 +352,33 @@
     } catch { d = null; }
     d = d || {};
     state.pins = (Array.isArray(d.pins) ? d.pins : [])
-      .filter(p => p && isFinite(p.lon) && isFinite(p.lat))
+      .filter(p => p && isFinite(p.lon) && isFinite(p.lat) && ((p.title || '').trim() || (p.memo || '').trim()))
       .map(p => ({
         id: p.id || 'P' + uid(), lon: p.lon, lat: p.lat,
         title: p.title || '', memo: p.memo || '',
-        kind: KINDS.some(k => k.id === p.kind) ? p.kind : 'normal'
+        kind: p.kind === 'capital' ? 'capital' : 'normal'
       }));
+    const kInit = Math.max(window.innerWidth, 320) / W;
     state.layers = (Array.isArray(d.layers) && d.layers.length ? d.layers : [blankLayer('メモ')]).map(l => ({
       id: l.id || 'L' + uid(),
       name: l.name || '無題',
       visible: l.visible !== false,
-      strokes: (Array.isArray(l.strokes) ? l.strokes : []).filter(s => Array.isArray(s.pts) && s.pts.length > 1)
-        .map(s => ({ ...s, above: s.above !== false, px: s.px > 0 ? s.px : clamp((s.width || 0.01) * (window.innerWidth / W), 1.5, 24) })),
-      fills: Array.isArray(l.fills) ? l.fills.filter(f => f && (f.kind === 'country' || (f.kind === 'lasso' && Array.isArray(f.pts)))) : []
+      strokes: (Array.isArray(l.strokes) ? l.strokes : []).filter(s => s && Array.isArray(s.pts) && s.pts.length > 1)
+        .map(s => {
+          const w = s.width > 0 ? s.width : (s.px > 0 ? s.px / kInit : 1);   // 旧版(画面px固定)からの換算
+          const o = { ...s, width: w, above: s.above !== false, land: !!s.land };
+          delete o.px;
+          return o;
+        }),
+      fills: (Array.isArray(l.fills) ? l.fills : []).filter(f => f && (f.kind === 'country' || (f.kind === 'lasso' && Array.isArray(f.pts))))
+        .map(f => ({ ...f, color: f.color || FILL_DEFAULT })),
+      stamps: (Array.isArray(l.stamps) ? l.stamps : []).filter(s => s && STAMP_BY[s.type] && isFinite(s.lon) && isFinite(s.lat) && s.size > 0),
+      texts: (Array.isArray(l.texts) ? l.texts : []).filter(t => t && typeof t.text === 'string' && t.text.trim() && isFinite(t.lon) && isFinite(t.lat))
     }));
     state.countries = d.countries && typeof d.countries === 'object' ? d.countries : {};
+    if (d.guides && typeof d.guides === 'object') {
+      state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false };
+    }
     state.activeLayerId = state.layers[0].id;
     if (migrated) save();
   }
@@ -203,31 +390,26 @@
     const r = container.getBoundingClientRect();
     sw = r.width; sh = r.height;
     dpr = Math.min(window.devicePixelRatio || 1, 3);
-    [cBelow, cAbove, offA, offB].forEach(c => {
+    [cBelow, cAbove, cTop, offA, offB].forEach(c => {
       c.width = Math.round(sw * dpr);
       c.height = Math.round(sh * dpr);
     });
-    d3.selectAll('#svg-base, #svg-lines, #svg-pins').attr('width', sw).attr('height', sh);
+    [xBelow, xAbove, xTop, offA2, offB2].forEach(c => { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; });
+    d3.selectAll('#svg-base, #svg-lines, #svg-guides, #svg-pins').attr('width', sw).attr('height', sh);
   }
 
-  function dockSpace() { return (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock-h')) || 90); }
+  function dockSpace() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock-h')) || 90; }
 
   function fitView() {
-    // 地図が使える緯度帯（北緯78°〜南緯56°）を基準に収める
     const yN = projection([0, 78])[1], yS = projection([0, -56])[1];
     const k = Math.min(sw / W, (sh - 80) / (yS - yN));
     state.k0 = k;
-    state.transform = {
-      k,
-      x: (sw - W * k) / 2,
-      y: (sh - dockSpace()) / 2 - k * (yN + yS) / 2 + 10
-    };
+    state.transform = { k, x: (sw - W * k) / 2, y: (sh - dockSpace()) / 2 - k * (yN + yS) / 2 + 10 };
   }
 
   function clampTf() {
     const t = state.transform;
-    const kMin = state.k0 * 0.8, kMax = Math.max(state.k0 * 60, 12);
-    t.k = clamp(t.k, kMin, kMax);
+    t.k = clamp(t.k, state.k0 * 0.8, Math.max(state.k0 * 60, 12));
     const m = 70;
     t.x = clamp(t.x, m - W * t.k, sw - m);
     t.y = clamp(t.y, m - W * t.k, sh - m);
@@ -252,31 +434,72 @@
     rafId = requestAnimationFrame(() => { rafId = 0; applyTf(); });
   }
 
+  // 模様の密度は2倍刻みで切り替え（刻みの間は地図に貼り付いて動かない）
+  function patScale() { return Math.pow(2, Math.round(Math.log2(1 / state.transform.k))); }
+  function applyPatScale(force) {
+    const ps = patScale();
+    if (!force && ps === lastPs) return;
+    lastPs = ps;
+    svgBase.selectAll('pattern').attr('patternTransform', `scale(${ps})`);
+  }
+
   function applyTf() {
     clampTf();
     const { x, y, k } = state.transform;
     const t = `translate(${x},${y}) scale(${k})`;
     svgBase.select('.world').attr('transform', t);
     svgLines.select('.world').attr('transform', t);
-    // 模様は画面上の大きさを一定に保つ（ズームしても密度が変わらない）
-    svgBase.selectAll('pattern').attr('patternTransform', `scale(${1 / k})`);
+    svgGuides.select('.world').attr('transform', t);
+    applyPatScale(false);
     positionPins();
+    positionEditor();
     redraw();
+    if (state.edit && state.tool === 'draw') updateSizePreview();
   }
 
   /* =========================================================
-   * 地図の構築
+   * 地図データ
    * ======================================================= */
-  function keyOf(p) { return String(p.ADM0_A3 || p.ISO_A3 || p.ADMIN || p.NAME || ''); }
-  function nameOf(p) { return p.NAME_JA || p.NAME_EN || p.NAME || p.ADMIN || '(不明)'; }
+  const isTW = p => /^taiwan$/i.test(String(p.ADMIN || p.NAME || p.NAME_EN || '')) || p.ADM0_A3 === 'TWN' || p.ISO_A3 === 'TWN';
+  const isCN = p => p.ADM0_A3 === 'CHN' || /^china$/i.test(String(p.ADMIN || p.NAME || ''));
+  function keyOf(p) { return isTW(p) ? 'TWN' : String(p.ADM0_A3 || p.ISO_A3 || p.ADMIN || p.NAME || ''); }
+  function nameOf(p) { return isTW(p) ? '台湾' : (p.NAME_JA || p.NAME_EN || p.NAME || p.ADMIN || '(不明)'); }
+
+  // 台湾は中華人民共和国と別の地域として扱う（データが一体になっている場合は島を切り出す）
+  function splitTaiwan(list) {
+    const inBox = ring => ring.every(([x, y]) => x >= 118.9 && x <= 122.4 && y >= 21.7 && y <= 25.6);
+    const hasTW = list.some(f => isTW(f.properties || {}));
+    const out = [];
+    list.forEach(f => {
+      const p = f.properties || {};
+      if (!hasTW && isCN(p) && f.geometry && f.geometry.type === 'MultiPolygon') {
+        const tw = [], rest = [];
+        f.geometry.coordinates.forEach(poly => (inBox(poly[0]) ? tw : rest).push(poly));
+        if (tw.length && rest.length) {
+          out.push({ ...f, geometry: { type: 'MultiPolygon', coordinates: rest } });
+          out.push({
+            type: 'Feature',
+            properties: { ...p, ADMIN: 'Taiwan', NAME: 'Taiwan', NAME_EN: 'Taiwan', NAME_JA: '台湾', ADM0_A3: 'TWN', ISO_A3: 'TWN', ISO_A2: 'TW' },
+            geometry: { type: 'MultiPolygon', coordinates: tw }
+          });
+          return;
+        }
+      }
+      out.push(f);
+    });
+    return out;
+  }
 
   function prepareData(countries, rivers) {
-    feats = (countries.features || []).map(f => {
+    feats = splitTaiwan(countries.features || []).map(f => {
       const p = f.properties || {};
       f._key = keyOf(p);
       f._name = nameOf(p);
       f._d = pathGen(f) || '';
       f._b = pathGen.bounds(f);
+      const p2 = new Path2D();
+      d3.geoPath(projection, p2)(f);
+      f._p = p2;
       return f;
     }).filter(f => f._d && f._key);
     byKey.clear();
@@ -285,16 +508,9 @@
   }
 
   function buildMap() {
-    // ---- 下層SVG：陸地＋塗り ----
     svgBase.selectAll('*').remove();
     const defs = svgBase.append('defs');
-    PATTERNS.forEach(p => {
-      defs.append('pattern')
-        .attr('id', 'pat-' + p.id)
-        .attr('patternUnits', 'userSpaceOnUse')
-        .attr('width', p.w).attr('height', p.h)
-        .html(p.body);
-    });
+    defs.append('g').attr('id', 'pats');
     defs.append('g').attr('id', 'clips');
     const bw = svgBase.append('g').attr('class', 'world');
     bw.append('g').attr('class', 'land')
@@ -302,7 +518,6 @@
       .attr('class', 'country').attr('d', d => d._d);
     bw.append('g').attr('class', 'fills');
 
-    // ---- 国境・河川SVG ----
     svgLines.selectAll('*').remove();
     const lw = svgLines.append('g').attr('class', 'world');
     lw.append('g').attr('class', 'borders')
@@ -312,67 +527,89 @@
       .selectAll('path').data(riverFeats).join('path')
       .attr('class', 'river').attr('d', d => d._d);
     lw.append('path').attr('class', 'hl hidden');
+    const sg = projection([0, -76]);
+    lw.append('text').attr('class', 'signature').attr('x', sg[0]).attr('y', sg[1]).text('developed by unconditionalLOVE');
 
-    // ---- ピンSVG（画面座標）----
+    // ガイド線（赤道・回帰線）：固定レイヤー
+    svgGuides.selectAll('*').remove();
+    const gw = svgGuides.append('g').attr('class', 'world');
+    const yy = lat => projection([0, lat])[1];
+    const eq = gw.append('g').attr('class', 'grp-eq');
+    eq.append('line').attr('class', 'g-eq').attr('x1', 0).attr('x2', W).attr('y1', yy(0)).attr('y2', yy(0));
+    eq.append('text').attr('class', 'g-lbl').attr('x', 6).attr('y', yy(0) - 1.6).text('赤道');
+    const tr = gw.append('g').attr('class', 'grp-tr');
+    [[TROPIC, '北回帰線'], [-TROPIC, '南回帰線']].forEach(([lat, name]) => {
+      tr.append('line').attr('class', 'g-tr').attr('x1', 0).attr('x2', W).attr('y1', yy(lat)).attr('y2', yy(lat));
+      tr.append('text').attr('class', 'g-lbl g-tr-lbl').attr('x', 6).attr('y', yy(lat) - 1.6).text(name);
+    });
+    applyGuides();
+
     svgPins.selectAll('*').remove();
     svgPins.append('g').attr('class', 'pins');
   }
 
-  /* ---------- 塗り（国境でクリップ） ---------- */
-  function polyD(m) {
-    return 'M' + m.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join('L') + 'Z';
+  function applyGuides() {
+    svgGuides.select('.grp-eq').classed('guide-off', !state.guides.equator);
+    svgGuides.select('.grp-tr').classed('guide-off', !state.guides.tropics);
   }
+
+  /* ---------- 塗り（国境でクリップ） ---------- */
+  const polyD = m => 'M' + m.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join('L') + 'Z';
   const clipId = key => 'clip-' + key.replace(/[^A-Za-z0-9_-]/g, '_');
+  const patId = (pid, color) => `pat-${pid}-${String(color).replace('#', '')}`;
 
   function renderFills() {
     if (!dataReady) return;
     const g = svgBase.select('.fills');
     g.selectAll('*').remove();
-    const clips = svgBase.select('#clips');
-    clips.selectAll('*').remove();
-    const used = new Set();
+    const clips = svgBase.select('#clips'); clips.selectAll('*').remove();
+    const pats = svgBase.select('#pats'); pats.selectAll('*').remove();
+    const usedClip = new Set(), usedPat = new Map();
 
-    // 下位レイヤーから順に積む（layers[0]が最上位）
     for (let i = state.layers.length - 1; i >= 0; i--) {
       const layer = state.layers[i];
       if (!layer.visible) continue;
       layer.fills.forEach(f => {
         const feat = byKey.get(f.country);
         if (!feat) return;
+        const color = f.color || FILL_DEFAULT;
+        const id = patId(f.pattern, color);
+        usedPat.set(id, { pid: f.pattern, color });
         if (f.kind === 'country') {
-          g.append('path').attr('d', feat._d).attr('fill', `url(#pat-${f.pattern})`);
+          g.append('path').attr('d', feat._d).attr('fill', `url(#${id})`);
         } else {
           const m = mpts(f);
           if (m.length < 3) return;
-          used.add(f.country);
-          g.append('path').attr('d', polyD(m))
-            .attr('fill', `url(#pat-${f.pattern})`)
-            .attr('clip-path', `url(#${clipId(f.country)})`);
+          usedClip.add(f.country);
+          g.append('path').attr('d', polyD(m)).attr('fill', `url(#${id})`).attr('clip-path', `url(#${clipId(f.country)})`);
         }
       });
     }
-    used.forEach(key => {
-      clips.append('clipPath').attr('id', clipId(key))
-        .append('path').attr('d', byKey.get(key)._d);
+    usedPat.forEach(({ pid, color }, id) => {
+      const p = PATTERNS.find(x => x.id === pid);
+      if (!p) return;
+      pats.append('pattern').attr('id', id).attr('patternUnits', 'userSpaceOnUse')
+        .attr('width', p.w).attr('height', p.h).style('color', color).html(p.body);
     });
-    svgBase.selectAll('pattern').attr('patternTransform', `scale(${1 / state.transform.k})`);
+    usedClip.forEach(key => {
+      clips.append('clipPath').attr('id', clipId(key)).append('path').attr('d', byKey.get(key)._d);
+    });
+    applyPatScale(true);
   }
 
   function renderHighlight() {
     const hl = svgLines.select('.hl');
     if (hl.empty()) return;
-    const f = state.selectedCountryKey && byKey.get(state.selectedCountryKey);
+    const key = state.selectedCountryKey || (state.edit && state.tool === 'draw' && needTarget() ? state.lassoKey : null);
+    const f = key && byKey.get(key);
     if (f) hl.attr('d', f._d).classed('hidden', false);
     else hl.classed('hidden', true);
   }
 
   /* ---------- ピン ---------- */
-  function pinShape(kind) {
-    return kind === 'capital'
-      ? '<circle class="halo" r="6.8"/><circle class="cap" r="4"/>'
-      : '<circle class="halo" r="6.8"/><circle class="dot" r="4"/>';
-  }
-  const pinR = () => 7;
+  const pinShape = kind => (kind === 'capital'
+    ? '<circle class="halo" r="6.8"/><circle class="cap" r="4"/>'
+    : '<circle class="halo" r="6.8"/><circle class="dot" r="4"/>');
 
   function renderPins() {
     const root = svgPins.select('g.pins');
@@ -384,8 +621,8 @@
     all.each(function (d) {
       const g = d3.select(this);
       g.html(pinShape(d.kind));
-      if (d.id === state.selectedPinId) g.append('circle').attr('class', 'sel').attr('r', pinR(d.kind) + 4);
-      if (d.title) g.append('text').attr('class', 'lbl').attr('x', pinR(d.kind) + 4).attr('y', 4).text(d.title);
+      if (d.id === state.selectedPinId) g.append('circle').attr('class', 'sel').attr('r', 11);
+      if (d.title) g.append('text').attr('class', 'lbl').attr('x', 11).attr('y', 4).text(d.title);
     });
     positionPins();
   }
@@ -412,7 +649,6 @@
     return best;
   }
 
-  /* ---------- 国の判定 ---------- */
   function featureAtMap(mx, my) {
     const ll = projection.invert([mx, my]);
     if (!ll || !isFinite(ll[0]) || !isFinite(ll[1]) || Math.abs(ll[0]) > 180 || Math.abs(ll[1]) > 85) return null;
@@ -425,14 +661,19 @@
   }
 
   /* =========================================================
-   * 落書きの描画（canvas 2枚：国境の下／上）
+   * キャンバス描画：落書き・スタンプ・文字
    * ======================================================= */
-  function activeLayer() { return state.layers.find(l => l.id === state.activeLayerId); }
+  const activeLayer = () => state.layers.find(l => l.id === state.activeLayerId);
 
   function mpts(o) {
     if (o.m) return o.m;
     let m = mcache.get(o);
     if (!m) { m = o.pts.map(p => projection(p)); mcache.set(o, m); }
+    return m;
+  }
+  function smap(s) {
+    let m = mcache.get(s);
+    if (!m) { m = projection([s.lon, s.lat]); mcache.set(s, m); }
     return m;
   }
 
@@ -441,10 +682,29 @@
     c.setTransform(dpr * k, 0, 0, dpr * k, dpr * x, dpr * y);
   }
 
+  function viewportMap() {
+    const { x, y, k } = state.transform;
+    return { x0: -x / k, y0: -y / k, x1: (sw - x) / k, y1: (sh - y) / k };
+  }
+
+  // 「国上のみ」用：画面に入っている国だけを結合したクリップ（海には描けない）
+  function landClip() {
+    if (clipCache) return clipCache;
+    const v = viewportMap();
+    const p = new Path2D();
+    feats.forEach(f => {
+      const b = f._b;
+      if (b[1][0] < v.x0 || b[0][0] > v.x1 || b[1][1] < v.y0 || b[0][1] > v.y1) return;
+      p.addPath(f._p);
+    });
+    clipCache = p;
+    return p;
+  }
+
   function drawStroke(c, s) {
     const m = mpts(s);
     if (m.length < 2) return;
-    c.lineWidth = s.px / state.transform.k;      // 画面上の太さを一定に保つ（拡大縮小しても同じ見た目）
+    c.lineWidth = s.width;                     // 地図基準の太さ（拡大すると線も一緒に太くなり、隙間が空かない）
     c.lineCap = 'round';
     c.lineJoin = 'round';
     if (s.type === 'eraser') { c.globalCompositeOperation = 'destination-out'; c.strokeStyle = '#000'; }
@@ -456,22 +716,34 @@
     c.globalCompositeOperation = 'source-over';
   }
 
+  function paintList(c, arr) {
+    let clipped = false;
+    arr.forEach(s => {
+      const want = s.type === 'pen' && s.land;
+      if (want !== clipped) {
+        if (want) { c.save(); c.clip(landClip()); } else c.restore();
+        clipped = want;
+      }
+      drawStroke(c, s);
+    });
+    if (clipped) c.restore();
+  }
+
   function drawLayerStrokes(layer) {
     const list = (cur && layer.id === state.activeLayerId) ? layer.strokes.concat([cur]) : layer.strokes;
     if (!list.length) return;
-    const hasEraser = list.some(s => s.type === 'eraser');
-    if (!hasEraser) {
-      list.forEach(s => drawStroke(s.above ? xAbove : xBelow, s));
+    if (!list.some(s => s.type === 'eraser')) {
+      paintList(xAbove, list.filter(s => s.above));
+      paintList(xBelow, list.filter(s => !s.above));
       return;
     }
-    // 消しゴムは「そのレイヤーの線だけ」に効かせる → 一旦オフスクリーンに描いて合成
     [[true, xAbove, offA, offA2], [false, xBelow, offB, offB2]].forEach(([above, target, off, offc]) => {
       const sideList = list.filter(s => s.type === 'eraser' || !!s.above === above);
       if (!sideList.some(s => s.type === 'pen')) return;
       offc.setTransform(1, 0, 0, 1, 0, 0);
       offc.clearRect(0, 0, off.width, off.height);
       setTf(offc);
-      sideList.forEach(s => drawStroke(offc, s));
+      paintList(offc, sideList);
       target.save();
       target.setTransform(1, 0, 0, 1, 0, 0);
       target.drawImage(off, 0, 0);
@@ -479,16 +751,64 @@
     });
   }
 
+  function drawStamps(c, layer, ind) {
+    if (!layer.stamps.length) return;
+    const v = viewportMap(), k = state.transform.k;
+    if (ind) c.globalAlpha = 0.62;
+    layer.stamps.forEach(s => {
+      const st = STAMP_BY[s.type];
+      if (!st || (st.cat === 'ind') !== ind) return;
+      if (s.size * k < 2) return;
+      const m = smap(s), h = s.size / 2;
+      if (m[0] + h < v.x0 || m[0] - h > v.x1 || m[1] + h < v.y0 || m[1] - h > v.y1) return;
+      c.drawImage(sprite(st), m[0] - h, m[1] - h, s.size, s.size);
+    });
+    c.globalAlpha = 1;
+  }
+
+  function textLines(t) { return String(t.text).split('\n'); }
+  function measureText(t) {
+    tctx.font = FONT;
+    const w = Math.max(...textLines(t).map(l => tctx.measureText(l).width)) * t.size / 100;
+    return { w, h: textLines(t).length * t.size * 1.25 };
+  }
+
+  function drawTexts(c, layer) {
+    layer.texts.forEach(t => {
+      if (state.textSel && state.textSel.t === t) return;     // 編集中は編集欄が表示する
+      const m = projection([t.lon, t.lat]);
+      c.save();
+      c.translate(m[0], m[1]);
+      c.scale(t.size / 100, t.size / 100);
+      c.font = FONT;
+      c.textBaseline = 'top';
+      c.lineJoin = 'round';
+      textLines(t).forEach((ln, i) => {
+        c.lineWidth = 14;
+        c.strokeStyle = 'rgba(255,255,255,0.85)';
+        c.strokeText(ln, 0, i * 125);
+        c.fillStyle = t.color || '#1a1a1a';
+        c.fillText(ln, 0, i * 125);
+      });
+      c.restore();
+    });
+  }
+
   function redraw() {
-    [xBelow, xAbove].forEach(c => {
+    clipCache = null;
+    [xBelow, xAbove, xTop].forEach(c => {
       c.setTransform(1, 0, 0, 1, 0, 0);
       c.clearRect(0, 0, cBelow.width, cBelow.height);
       setTf(c);
     });
     for (let i = state.layers.length - 1; i >= 0; i--) {
-      if (state.layers[i].visible) drawLayerStrokes(state.layers[i]);
+      const layer = state.layers[i];
+      if (!layer.visible) continue;
+      drawLayerStrokes(layer);
+      drawStamps(xAbove, layer, false);
+      drawTexts(xAbove, layer);
+      drawStamps(xTop, layer, true);       // 工業スタンプはピンの上に半透明で
     }
-    // 投げ縄プレビュー（画面座標）
     if (lasso && lasso.s.length > 1) {
       xAbove.setTransform(dpr, 0, 0, dpr, 0, 0);
       xAbove.beginPath();
@@ -505,7 +825,7 @@
   }
 
   /* =========================================================
-   * Undo / Redo（操作ごとに undo/redo 関数を持つ）
+   * Undo / Redo
    * ======================================================= */
   const A = {
     addStroke: (l, s) => ({
@@ -519,34 +839,44 @@
         undo() { l.strokes.splice(clamp(idx, 0, l.strokes.length), 0, s); }
       };
     },
-    addFill: (l, f) => {
-      let rep = [];
-      return {
-        redo() {
-          rep = f.kind === 'country' ? l.fills.filter(x => x.kind === 'country' && x.country === f.country) : [];
-          if (rep.length) l.fills = l.fills.filter(x => !rep.includes(x));
-          l.fills.push(f);
-        },
-        undo() { l.fills = l.fills.filter(x => x !== f); l.fills.push(...rep); }
-      };
-    },
+    addFill: (l, f) => ({
+      redo() { l.fills.push(f); },
+      undo() { l.fills = l.fills.filter(x => x !== f); }
+    }),
     removeFills: (l, arr) => {
       let idxs = [];
       return {
+        redo() { idxs = arr.map(f => l.fills.indexOf(f)); l.fills = l.fills.filter(x => !arr.includes(x)); },
+        undo() { arr.forEach((f, i) => l.fills.splice(clamp(idxs[i], 0, l.fills.length), 0, f)); }
+      };
+    },
+    setCountryFill: (l, key, nf) => {
+      let old = [];
+      return {
         redo() {
-          idxs = arr.map(f => l.fills.indexOf(f));
-          l.fills = l.fills.filter(x => !arr.includes(x));
+          old = l.fills.filter(x => x.kind === 'country' && x.country === key);
+          l.fills = l.fills.filter(x => !old.includes(x));
+          if (nf) l.fills.push(nf);
         },
         undo() {
-          arr.forEach((f, i) => l.fills.splice(clamp(idxs[i], 0, l.fills.length), 0, f));
+          if (nf) l.fills = l.fills.filter(x => x !== nf);
+          l.fills.push(...old);
         }
       };
     },
+    addStamps: (l, arr) => ({
+      redo() { l.stamps.push(...arr); },
+      undo() { l.stamps = l.stamps.filter(s => !arr.includes(s)); }
+    }),
+    removeStamps: (l, arr) => ({
+      redo() { l.stamps = l.stamps.filter(s => !arr.includes(s)); },
+      undo() { l.stamps.push(...arr); }
+    }),
     clear: l => {
-      let ss, ff;
+      let a, b, c, d;
       return {
-        redo() { ss = l.strokes; ff = l.fills; l.strokes = []; l.fills = []; },
-        undo() { l.strokes = ss; l.fills = ff; }
+        redo() { a = l.strokes; b = l.fills; c = l.stamps; d = l.texts; l.strokes = []; l.fills = []; l.stamps = []; l.texts = []; },
+        undo() { l.strokes = a; l.fills = b; l.stamps = c; l.texts = d; }
       };
     }
   };
@@ -586,12 +916,13 @@
   function startStroke(sx, sy) {
     if (!drawable()) return false;
     const eraser = state.sub === 'eraser';
-    const px = eraser ? Math.max(14, state.width * 3) : state.width;
+    const w = sizeVal('pen');
     cur = {
       type: eraser ? 'eraser' : 'pen',
       color: state.color,
-      px,
+      width: eraser ? Math.max(w * 3, 10 / state.transform.k) : w,
       above: state.side === 'above',
+      land: !eraser && state.landOnly,
       m: [toMap(sx, sy)]
     };
     redraw();
@@ -613,7 +944,7 @@
     let m = s.m;
     if (m.length === 1) m = [m[0], [m[0][0] + 0.0005, m[0][1]]];
     const stroke = {
-      type: s.type, color: s.color, px: s.px, above: s.above,
+      type: s.type, color: s.color, width: +s.width.toFixed(4), above: s.above, land: s.land,
       pts: m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
     };
     mcache.set(stroke, m);
@@ -637,14 +968,33 @@
       if (s.type !== 'pen') return;
       const m = mpts(s);
       for (let i = 1; i < m.length; i++) {
-        const d = distPointToSeg(mx, my, m[i - 1][0], m[i - 1][1], m[i][0], m[i][1]) - s.px / 2 / state.transform.k;
+        const d = distPointToSeg(mx, my, m[i - 1][0], m[i - 1][1], m[i][0], m[i][1]) - s.width / 2;
         if (d < bd) { bd = d; best = s; }
       }
     });
     if (best && bd <= thr) perform(A.removeStroke(layer, best));
   }
 
-  /* ---------- 投げ縄塗り ---------- */
+  function eraseStampsAt(sx, sy) {
+    const layer = drawable();
+    if (!layer) return;
+    const [mx, my] = toMap(sx, sy), k = state.transform.k;
+    const hit = layer.stamps.filter(s => {
+      const m = smap(s);
+      return Math.hypot(m[0] - mx, m[1] - my) < Math.max(s.size / 2, 12 / k);
+    });
+    if (hit.length) perform(A.removeStamps(layer, hit));
+  }
+
+  /* ---------- 投げ縄（先に国を選ぶ → その国の中だけ） ---------- */
+  function pickTarget(sx, sy) {
+    const f = featureAtMap(...toMap(sx, sy));
+    if (!f) { showToast('国の内側をタップして選んでください'); return; }
+    state.lassoKey = f._key;
+    renderHighlight();
+    updateUI();
+  }
+
   function startLasso(sx, sy) {
     if (!drawable()) return false;
     lasso = { m: [toMap(sx, sy)], s: [[sx, sy]] };
@@ -658,6 +1008,7 @@
     lasso.m.push(toMap(sx, sy));
     redraw();
   }
+
   function finishLasso() {
     const L = lasso; lasso = null;
     redraw();
@@ -665,24 +1016,47 @@
     if (!L || !layer) return;
     const xs = L.s.map(p => p[0]), ys = L.s.map(p => p[1]);
     if (L.m.length < 6 || Math.max(...xs) - Math.min(...xs) < 8 || Math.max(...ys) - Math.min(...ys) < 8) {
-      showToast('もう少し大きく囲んでください');
+      const last = L.s[L.s.length - 1];       // ほぼタップ → 対象の国を選び直す
+      pickTarget(last[0], last[1]);
       return;
     }
-    // 囲んだ線の上にある国を数え、最も多い国を対象にする（ひとつの国にしか塗れない）
-    const step = Math.max(1, Math.floor(L.m.length / 60));
-    const count = new Map();
-    for (let i = 0; i < L.m.length; i += step) {
-      const f = featureAtMap(L.m[i][0], L.m[i][1]);
-      if (f) count.set(f._key, (count.get(f._key) || 0) + 1);
+    const feat = byKey.get(state.lassoKey);
+    if (!feat) { showToast('先に国をタップして選んでください'); return; }
+
+    if (state.sub === 'lasso') {
+      const fill = {
+        id: 'F' + uid(), kind: 'lasso', country: feat._key, pattern: state.pattern, color: state.fillColor,
+        pts: L.m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
+      };
+      mcache.set(fill, L.m);
+      perform(A.addFill(layer, fill));
+    } else {
+      stampFill(layer, feat, L.m);
     }
-    if (!count.size) { showToast('国の内側を囲んでください'); return; }
-    const key = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    const fill = {
-      id: 'F' + uid(), kind: 'lasso', country: key, pattern: state.pattern,
-      pts: L.m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
-    };
-    mcache.set(fill, L.m);
-    perform(A.addFill(layer, fill));
+  }
+
+  // 農牧業スタンプを等間隔・密集（ずらし配置）で敷き詰める。選んだ国の内側だけ
+  function stampFill(layer, feat, poly) {
+    const st = stampDef(), size = sizeVal('stamp');
+    const stepX = size * 1.1, stepY = stepX * 0.87;
+    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+    const minX = Math.max(Math.min(...xs), feat._b[0][0]), maxX = Math.min(Math.max(...xs), feat._b[1][0]);
+    const minY = Math.max(Math.min(...ys), feat._b[0][1]), maxY = Math.min(Math.max(...ys), feat._b[1][1]);
+    if ((maxX - minX) * (maxY - minY) / (stepX * stepY) > 6000) {
+      showToast('範囲が広すぎます。拡大して囲むか、スタンプを大きくしてください');
+      return;
+    }
+    const arr = [];
+    for (let row = 0, y = minY; y <= maxY; row++, y += stepY) {
+      for (let x = minX + (row % 2 ? stepX / 2 : 0); x <= maxX; x += stepX) {
+        if (!d3.polygonContains(poly, [x, y])) continue;
+        const ll = projection.invert([x, y]);
+        if (!ll || !d3.geoContains(feat, ll)) continue;
+        arr.push({ id: 'S' + uid() + arr.length, type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size });
+      }
+    }
+    if (!arr.length) { showToast('範囲が小さすぎます（スタンプが入りません）'); return; }
+    perform(A.addStamps(layer, arr));
   }
 
   /* ---------- 国塗り・塗り消し ---------- */
@@ -691,7 +1065,7 @@
     if (!layer) return;
     const f = featureAtMap(...toMap(sx, sy));
     if (!f) { showToast('国をタップしてください'); return; }
-    perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: f._key, pattern: state.pattern }));
+    perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: f._key, pattern: state.pattern, color: state.fillColor }));
   }
 
   function eraseFillAt(sx, sy) {
@@ -703,7 +1077,7 @@
       const f = layer.fills[i];
       const feat = byKey.get(f.country);
       if (!feat) continue;
-      let hit = false;
+      let hit;
       if (f.kind === 'country') hit = !!ll && d3.geoContains(feat, ll);
       else hit = d3.polygonContains(mpts(f), [mx, my]) && !!ll && d3.geoContains(feat, ll);
       if (hit) { perform(A.removeFills(layer, [f])); return; }
@@ -714,29 +1088,165 @@
   function setCountryPattern(key, pid) {
     const layer = drawable();
     if (!layer) return;
-    const existing = layer.fills.filter(f => f.kind === 'country' && f.country === key);
-    if (!pid) {
-      if (existing.length) perform(A.removeFills(layer, existing));
-      return;
-    }
-    if (existing.length === 1 && existing[0].pattern === pid) return;
-    perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: key, pattern: pid }));
+    const nf = pid ? { id: 'F' + uid(), kind: 'country', country: key, pattern: pid, color: state.fillColor } : null;
+    const has = layer.fills.some(f => f.kind === 'country' && f.country === key);
+    if (!nf && !has) return;
+    perform(A.setCountryFill(layer, key, nf));
   }
 
   function clearActiveLayer() {
     const layer = activeLayer();
     if (!layer) return;
-    if (!layer.strokes.length && !layer.fills.length) { showToast('消すものがありません'); return; }
-    if (!confirm(`「${layer.name}」の落書きと塗りをすべて消しますか？`)) return;
+    if (!layer.strokes.length && !layer.fills.length && !layer.stamps.length && !layer.texts.length) { showToast('消すものがありません'); return; }
+    if (!confirm(`「${layer.name}」の落書き・塗り・スタンプ・文字をすべて消しますか？`)) return;
+    finalizeText();
     perform(A.clear(layer));
     showToast('全消ししました（元に戻せます）');
   }
 
   /* =========================================================
-   * ポインタ操作（マウス・タッチ・ペン共通）
+   * スタンプ（タップ配置）
+   * ======================================================= */
+  function placeStamp(sx, sy) {
+    const layer = drawable();
+    if (!layer) return;
+    const st = stampDef();
+    let m = toMap(sx, sy);
+    if (st.cat === 'ind') {                 // 工業スタンプ：近くにピン（都市）があればその上に
+      const pin = pinAt(sx, sy);
+      if (pin) m = projection([pin.lon, pin.lat]);
+    }
+    const ll = projection.invert(m);
+    if (!ll || Math.abs(ll[1]) > 85) return;
+    const s = { id: 'S' + uid(), type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size: sizeVal('stamp') };
+    perform(A.addStamps(layer, [s]));
+  }
+
+  /* =========================================================
+   * テキスト
+   * ======================================================= */
+  function textRect(t) {
+    const m = projection([t.lon, t.lat]), { x, y, k } = state.transform;
+    const q = measureText(t);
+    const sx = x + m[0] * k, sy = y + m[1] * k;
+    return { x0: sx - 8, y0: sy - 8, x1: sx + Math.max(q.w * k, 24) + 8, y1: sy + Math.max(q.h * k, 18) + 8 };
+  }
+
+  function textAt(sx, sy) {
+    for (let i = 0; i < state.layers.length; i++) {
+      const layer = state.layers[i];
+      if (!layer.visible) continue;
+      for (let j = layer.texts.length - 1; j >= 0; j--) {
+        const t = layer.texts[j], r = textRect(t);
+        if (sx >= r.x0 && sx <= r.x1 && sy >= r.y0 && sy <= r.y1) return { layer, t };
+      }
+    }
+    return null;
+  }
+
+  function selectText(sel) {
+    state.textSel = sel;
+    $('te-input').value = sel.t.text;
+    $('text-editor').classList.remove('hidden');
+    positionEditor();
+    redraw();
+    try { $('te-input').focus({ preventScroll: true }); } catch { $('te-input').focus(); }
+  }
+
+  function createText(sx, sy) {
+    const layer = drawable();
+    if (!layer) return;
+    const ll = projection.invert(toMap(sx, sy));
+    if (!ll || Math.abs(ll[1]) > 85) return;
+    const t = { id: 'T' + uid(), lon: round4(ll[0]), lat: round4(ll[1]), text: '', size: sizeVal('text'), color: state.color };
+    layer.texts.push(t);
+    selectText({ layer, t });
+  }
+
+  // 選択解除。空のテキストは自動で削除
+  function finalizeText() {
+    const sel = state.textSel;
+    if (!sel) return;
+    state.textSel = null;
+    $('text-editor').classList.add('hidden');
+    if (!sel.t.text.trim()) sel.layer.texts = sel.layer.texts.filter(x => x !== sel.t);
+    save();
+    redraw();
+  }
+
+  function positionEditor() {
+    const sel = state.textSel;
+    if (!sel) return;
+    const t = sel.t, m = projection([t.lon, t.lat]), { x, y, k } = state.transform;
+    const px = Math.max(12, t.size * k);
+    const ed = $('text-editor'), inp = $('te-input');
+    ed.style.left = (x + m[0] * k - 3.5) + 'px';
+    ed.style.top = (y + m[1] * k - 3.5) + 'px';
+    inp.style.fontSize = px + 'px';
+    inp.style.color = t.color || '#1a1a1a';
+    const lines = textLines(t);
+    tctx.font = `600 ${px}px -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif`;
+    const w = Math.max(...lines.map(l => tctx.measureText(l || ' ').width));
+    inp.style.width = Math.max(60, Math.ceil(w) + 18) + 'px';
+    inp.style.height = Math.ceil(lines.length * px * 1.25 + 8) + 'px';
+  }
+
+  function bindText() {
+    const inp = $('te-input');
+    inp.addEventListener('input', () => {
+      const sel = state.textSel; if (!sel) return;
+      sel.t.text = inp.value;
+      positionEditor();
+      saveSoon();
+    });
+    inp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); finalizeText(); } });
+    $('te-del').onclick = () => {
+      const sel = state.textSel; if (!sel) return;
+      sel.layer.texts = sel.layer.texts.filter(x => x !== sel.t);
+      state.textSel = null;
+      $('text-editor').classList.add('hidden');
+      save(); redraw();
+      showToast('テキストを削除しました');
+    };
+    // 移動ハンドル
+    const mv = $('te-move');
+    let drag = null;
+    mv.addEventListener('pointerdown', e => {
+      const sel = state.textSel; if (!sel) return;
+      e.preventDefault();
+      mv.setPointerCapture(e.pointerId);
+      const p = pos(e), m0 = toMap(p[0], p[1]), tm = projection([sel.t.lon, sel.t.lat]);
+      drag = { dx: tm[0] - m0[0], dy: tm[1] - m0[1] };
+    });
+    mv.addEventListener('pointermove', e => {
+      const sel = state.textSel; if (!drag || !sel) return;
+      const p = pos(e), m = toMap(p[0], p[1]);
+      const ll = projection.invert([m[0] + drag.dx, m[1] + drag.dy]);
+      if (!ll) return;
+      sel.t.lon = round4(ll[0]); sel.t.lat = round4(ll[1]);
+      positionEditor();
+    });
+    const end = () => { if (drag) { drag = null; save(); } };
+    mv.addEventListener('pointerup', end);
+    mv.addEventListener('pointercancel', end);
+  }
+
+  function textTap(sx, sy) {
+    const hit = textAt(sx, sy);
+    if (state.textSel) {
+      if (hit && hit.t !== state.textSel.t) { finalizeText(); selectText(hit); }
+      else if (!hit) finalizeText();
+      else $('te-input').focus();
+      return;
+    }
+    if (hit) selectText(hit); else createText(sx, sy);
+  }
+
+  /* =========================================================
+   * ポインタ操作
    * ======================================================= */
   const ptrs = new Map();
-  let g = null;          // 現在のジェスチャ
+  let g = null;
   let pinch = null;
 
   function pos(e) {
@@ -760,7 +1270,7 @@
     if (!dataReady) return;
     try { container.setPointerCapture(e.pointerId); } catch { /* noop */ }
     ptrs.set(e.pointerId, pos(e));
-    if (ptrs.size === 2) {              // 2本指：常に移動・ズーム
+    if (ptrs.size === 2) {
       abortGesture();
       const [a, b] = [...ptrs.values()];
       pinch = { d: Math.max(dist(a, b), 1), m: mid(a, b) };
@@ -771,7 +1281,7 @@
     e.preventDefault();
     const [sx, sy] = pos(e);
 
-    if (e.pointerType === 'mouse' && e.button !== 0) {   // 右/中ボタン：どのモードでも移動
+    if (e.pointerType === 'mouse' && e.button !== 0) {
       startPan(sx, sy, false);
       g.moved = true;
       container.classList.add('panning');
@@ -779,12 +1289,14 @@
     }
 
     if (state.edit && state.tool === 'draw') {
-      if (state.sub === 'pen' || state.sub === 'eraser') {
+      const sub = state.sub;
+      if (sub === 'pen' || (sub === 'eraser' && state.eraser === 'normal')) {
         if (startStroke(sx, sy)) { g = { type: 'stroke' }; return; }
         g = { type: 'none' }; return;
       }
-      if (state.sub === 'stroke-eraser') { g = { type: 'serase' }; eraseStrokeAt(sx, sy); return; }
-      if (state.sub === 'lasso') {
+      if (sub === 'eraser' && state.eraser === 'stroke') { g = { type: 'serase' }; eraseStrokeAt(sx, sy); return; }
+      if (sub === 'eraser' && state.eraser === 'stamp') { g = { type: 'sterase' }; eraseStampsAt(sx, sy); return; }
+      if (needTarget() && state.lassoKey) {
         if (startLasso(sx, sy)) { g = { type: 'lasso' }; return; }
         g = { type: 'none' }; return;
       }
@@ -814,6 +1326,8 @@
       moveLasso(p[0], p[1]);
     } else if (g.type === 'serase') {
       eraseStrokeAt(p[0], p[1]);
+    } else if (g.type === 'sterase') {
+      eraseStampsAt(p[0], p[1]);
     } else if (g.type === 'pan') {
       const dx = p[0] - g.sx, dy = p[1] - g.sy;
       if (!g.moved && Math.hypot(dx, dy) > TAP_DIST) { g.moved = true; container.classList.add('panning'); }
@@ -838,9 +1352,7 @@
     if (!cg) return;
     if (cg.type === 'stroke') { if (cancelled) { cur = null; redraw(); } else finishStroke(); }
     else if (cg.type === 'lasso') { if (cancelled) { lasso = null; redraw(); } else finishLasso(); }
-    else if (cg.type === 'pan' && !cancelled && cg.tap && !cg.moved && Date.now() - cg.t < TAP_MS) {
-      handleTap(cg.sx, cg.sy);
-    }
+    else if (cg.type === 'pan' && !cancelled && cg.tap && !cg.moved && Date.now() - cg.t < TAP_MS) handleTap(cg.sx, cg.sy);
   }
   container.addEventListener('pointerup', e => endPointer(e, false));
   container.addEventListener('pointercancel', e => endPointer(e, true));
@@ -853,9 +1365,7 @@
     requestRender();
   }, { passive: false });
 
-  /* ---------- タップ ---------- */
   function handleTap(sx, sy) {
-    // 通常時：閲覧のみ
     if (!state.edit) {
       if (state.viewTarget === 'pin') {
         const p = pinAt(sx, sy);
@@ -866,18 +1376,21 @@
       }
       return;
     }
-    // 編集時
     if (state.tool === 'pin') {
       const p = pinAt(sx, sy);
       if (p) { openPin(p); return; }
-      if (state.panel === 'pin') { closeMemo(); return; }   // 誤配置防止：先にパネルを閉じる
+      if (state.panel === 'pin') { closeMemo(); return; }
       placePin(sx, sy);
     } else if (state.tool === 'country') {
       const f = featureAtMap(...toMap(sx, sy));
       if (f) openCountry(f); else if (state.panel === 'country') closeMemo();
     } else if (state.tool === 'draw') {
-      if (state.sub === 'country-fill') fillCountryAt(sx, sy);
-      else if (state.sub === 'fill-eraser') eraseFillAt(sx, sy);
+      const sub = state.sub;
+      if (sub === 'country-fill') fillCountryAt(sx, sy);
+      else if (sub === 'eraser' && state.eraser === 'fill') eraseFillAt(sx, sy);
+      else if (sub === 'lasso') pickTarget(sx, sy);
+      else if (sub === 'text') textTap(sx, sy);
+      else if (sub === 'stamp') { if (needTarget()) pickTarget(sx, sy); else placeStamp(sx, sy); }
     }
   }
 
@@ -893,15 +1406,13 @@
     openPin(pin);
   }
 
-  function curPin() { return state.pins.find(p => p.id === state.selectedPinId); }
+  const curPin = () => state.pins.find(p => p.id === state.selectedPinId);
 
   function openPin(pin) {
     closeMemo(true);
     state.selectedPinId = pin.id;
-    // 編集用
     $('pin-title').value = pin.title;
     $('pin-memo').value = pin.memo;
-    // 閲覧用：タイトルとメモだけ（メモが空なら出さない／通常属性は出さない）
     $('pin-v-title').textContent = pin.title || '（無題）';
     const memo = (pin.memo || '').trim();
     $('pin-v-memo').textContent = pin.memo;
@@ -946,7 +1457,7 @@
   }
 
   /* =========================================================
-   * パネル管理
+   * パネル
    * ======================================================= */
   function setPanel(name) {
     state.panel = name;
@@ -956,15 +1467,22 @@
     if (name === 'layer') renderLayers();
   }
 
-  // ピン・国パネルを閉じる（編集中の内容は保存）
+  // ピン・国パネルを閉じる。編集中に名称のないピンは自動で削除
   function closeMemo(keepPanelState) {
-    if (state.edit) save();
-    const hadPin = state.selectedPinId, hadCountry = state.selectedCountryKey;
+    if (state.edit) {
+      const p = curPin();
+      if (p && !p.title.trim()) {
+        state.pins = state.pins.filter(x => x !== p);
+        showToast('名称のないピンを削除しました');
+      }
+      save();
+    }
+    const hadPin = state.selectedPinId;
     state.selectedPinId = null;
     state.selectedCountryKey = null;
     if (!keepPanelState && (state.panel === 'pin' || state.panel === 'country')) setPanel(null);
     if (hadPin) renderPins();
-    if (hadCountry || true) renderHighlight();
+    renderHighlight();
   }
 
   function toggleLayerPanel() {
@@ -982,10 +1500,29 @@
     down: '<svg viewBox="0 0 24 24" class="icon"><path d="M6 10l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     del: '<svg viewBox="0 0 24 24" class="icon"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
+  const SYS_LAYERS = [
+    { id: 'equator', name: '赤道' },
+    { id: 'tropics', name: '南回帰線と北回帰線' }
+  ];
 
   function renderLayers() {
     const list = $('layer-list');
     list.innerHTML = '';
+    SYS_LAYERS.forEach(sl => {
+      const on = state.guides[sl.id];
+      const div = document.createElement('div');
+      div.className = 'layer-item sys' + (on ? '' : ' off');
+      div.dataset.sys = sl.id;
+      div.innerHTML = `
+        <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示にする' : '表示する'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">固定レイヤー ・ 常に最上位（削除不可）</div></div>`;
+      list.appendChild(div);
+    });
+    const sep = document.createElement('div');
+    sep.className = 'layer-sep';
+    sep.textContent = '描画レイヤー';
+    list.appendChild(sep);
+
     state.layers.forEach((layer, i) => {
       const div = document.createElement('div');
       div.className = 'layer-item' + (layer.id === state.activeLayerId ? ' active' : '') + (layer.visible ? '' : ' off');
@@ -995,7 +1532,7 @@
         <button class="eye ${layer.visible ? '' : 'off'}" data-act="eye" title="${layer.visible ? '非表示にする' : '表示する'}" aria-label="表示切替">${layer.visible ? ICON.eye : ICON.eyeOff}</button>
         <div class="lbody">
           <input type="text" class="lname" value="${esc(layer.name)}" maxlength="40" ${state.edit ? '' : 'readonly'} />
-          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.length}</b>${i === 0 ? ' ・ 最上位' : ''}${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
+          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
         </div>
         <div class="lactions edit-only">
           <button data-act="up" title="上へ" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
@@ -1009,6 +1546,13 @@
   $('layer-list').addEventListener('click', e => {
     const item = e.target.closest('.layer-item');
     if (!item) return;
+    if (item.dataset.sys) {
+      if (e.target.closest('button')) {
+        state.guides[item.dataset.sys] = !state.guides[item.dataset.sys];
+        applyGuides(); save(); renderLayers();
+      }
+      return;
+    }
     const layer = state.layers.find(l => l.id === item.dataset.id);
     if (!layer) return;
     const btn = e.target.closest('button');
@@ -1024,8 +1568,9 @@
       if (act === 'up' && i > 0) [state.layers[i - 1], state.layers[i]] = [state.layers[i], state.layers[i - 1]];
       else if (act === 'down' && i < state.layers.length - 1) [state.layers[i + 1], state.layers[i]] = [state.layers[i], state.layers[i + 1]];
       else if (act === 'del') {
-        if (state.layers.length <= 1) { showToast('レイヤーは最低1つ必要です'); return; }
+        if (state.layers.length <= 1) { showToast('描画レイヤーは最低1つ必要です'); return; }
         if (!confirm(`レイヤー「${layer.name}」を削除しますか？（元に戻せません）`)) return;
+        finalizeText();
         state.layers = state.layers.filter(l => l !== layer);
         if (state.activeLayerId === layer.id) state.activeLayerId = state.layers[0].id;
         state.undo.length = 0; state.redo.length = 0; updateUndoButtons();
@@ -1033,10 +1578,9 @@
       save(); renderLayers(); renderFills(); redraw();
       return;
     }
-    // カードをタップ → 描画先に設定
     if (state.activeLayerId !== layer.id) {
+      finalizeText();
       state.activeLayerId = layer.id;
-      $('layer-list').querySelectorAll('.layer-item').forEach(el => el.classList.toggle('active', el.dataset.id === layer.id));
       renderLayers();
       if (state.panel === 'country') renderCountryChips();
     }
@@ -1050,23 +1594,22 @@
   });
 
   /* =========================================================
-   * UI（模様チップ・状態反映）
+   * UI
    * ======================================================= */
   let swId = 0;
   function swatch(p) {
     const id = 'sw' + (swId++);
     const body = p
-      ? `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${p.w}" height="${p.h}">${p.body}</pattern></defs>
+      ? `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${p.w}" height="${p.h}" style="color:${state.fillColor}">${p.body}</pattern></defs>
          <rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/>
          <rect x=".5" y=".5" width="29" height="29" rx="6" fill="url(#${id})"/>`
-      : `<rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/><path d="M7 7l16 16" stroke="#999" stroke-width="1.4" stroke-linecap="round"/>`;
+      : '<rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/><path d="M7 7l16 16" stroke="#999" stroke-width="1.4" stroke-linecap="round"/>';
     return `<svg viewBox="0 0 30 30" width="30" height="30">${body}<rect x=".5" y=".5" width="29" height="29" rx="6" fill="none" stroke="#bbb"/></svg>`;
   }
 
   function buildChips(el, withNone, onPick) {
     el.innerHTML = '';
-    const items = (withNone ? [null] : []).concat(PATTERNS);
-    items.forEach(p => {
+    (withNone ? [null] : []).concat(PATTERNS).forEach(p => {
       const b = document.createElement('button');
       b.className = 'pchip';
       b.dataset.pid = p ? p.id : 'none';
@@ -1076,8 +1619,79 @@
       el.appendChild(b);
     });
   }
-  function markChips(el, pid) {
-    el.querySelectorAll('.pchip').forEach(b => b.classList.toggle('active', b.dataset.pid === pid));
+  const markChips = (el, pid) => el.querySelectorAll('.pchip').forEach(b => b.classList.toggle('active', b.dataset.pid === pid));
+
+  function rebuildPatternChips() {
+    buildChips($('pattern-chips'), false, pid => { state.pattern = pid; markChips($('pattern-chips'), pid); });
+    buildChips($('country-chips'), true, pid => {
+      if (!state.edit || !state.selectedCountryKey) return;
+      setCountryPattern(state.selectedCountryKey, pid);
+      renderCountryChips();
+    });
+    markChips($('pattern-chips'), state.pattern);
+    renderCountryChips();
+  }
+
+  function buildStampUI() {
+    const seg = $('seg-cat');
+    seg.innerHTML = '';
+    CATS.forEach(c => {
+      const b = document.createElement('button');
+      b.dataset.cat = c.id; b.textContent = c.name;
+      b.onclick = () => {
+        state.stampCat = c.id;
+        if (stampDef().cat !== c.id) state.stamp = STAMPS.find(s => s.cat === c.id).id;
+        if (c.id !== 'agri') state.stampMode = 'tap';
+        state.lassoKey = null;
+        renderStampPal(); updateUI(); renderHighlight();
+      };
+      seg.appendChild(b);
+    });
+    renderStampPal();
+  }
+
+  function renderStampPal() {
+    const pal = $('stamp-pal');
+    pal.innerHTML = '';
+    STAMPS.filter(s => s.cat === state.stampCat).forEach(st => {
+      const b = document.createElement('button');
+      b.className = 'stbtn' + (st.id === state.stamp ? ' active' : '');
+      b.dataset.id = st.id;
+      b.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
+      b.onclick = () => { state.stamp = st.id; renderStampPal(); updateUI(); };
+      pal.appendChild(b);
+    });
+  }
+
+  function updateSizePreview() {
+    const key = sizeKey(), v = sizeVal(key), px = v * state.transform.k;
+    const box = $('size-prev');
+    $('size-px').textContent = '≈ ' + (px < 10 ? px.toFixed(1) : Math.round(px)) + 'px';
+    if (key === 'pen') {
+      const d = clamp(px, 1.5, 42);
+      box.innerHTML = `<i style="width:${d}px;height:${d}px;background:${state.sub === 'eraser' ? '#aaa' : state.color}"></i>`;
+    } else if (key === 'text') {
+      box.innerHTML = `<b style="font-size:${clamp(px, 7, 38)}px;color:${state.color}">あA</b>`;
+    } else {
+      const d = clamp(px, 8, 44);
+      box.innerHTML = `<img src="${spriteURL(stampDef())}" width="${d}" height="${d}" alt="">`;
+    }
+  }
+
+  function hintText() {
+    if (state.tool === 'pin') return '地図をタップしてピンを追加／ピンをタップして編集';
+    if (state.tool === 'country') return '国をタップして国メモを編集';
+    switch (state.sub) {
+      case 'pen': return `ペン（国境の${state.side === 'above' ? '上' : '下'}${state.landOnly ? '・国上のみ' : ''}）— 1本指で描く／2本指で移動・拡大`;
+      case 'eraser': return { normal: '消しゴム — なぞって消す（このレイヤーの線のみ）', stroke: '線消し — 消したい線をなぞる', fill: '塗り消し — 消したい塗りをタップ', stamp: 'スタンプ消し — なぞって消す' }[state.eraser];
+      case 'country-fill': return '国塗り — 国をタップして模様で塗る（重ね塗りOK）';
+      case 'lasso': return state.lassoKey ? '投げ縄 — 選んだ国の中だけ塗れます（別の国はタップで選び直し）' : '投げ縄 — まず塗りたい国をタップして選ぶ';
+      case 'text': return state.textSel ? 'テキスト編集中 — 「移動」で動かせます。空のままだと削除されます' : 'テキスト — 地図をタップして文字を置く／文字をタップして編集';
+      case 'stamp':
+        if (needTarget()) return state.lassoKey ? 'スタンプ — 選んだ国の中を囲んで敷き詰め' : 'スタンプ — まず国をタップして選ぶ';
+        return stampDef().cat === 'ind' ? 'スタンプ — タップ（ピンの近くならピンの上に半透明で）' : 'スタンプ — 地図をタップして押す';
+    }
+    return '';
   }
 
   function updateUI() {
@@ -1085,31 +1699,50 @@
     app.classList.toggle('edit', state.edit);
     $('lbl-edit').textContent = state.edit ? '完了' : '編集';
     $('bar-edit').classList.toggle('hidden', !state.edit);
-    $('bar-draw').classList.toggle('hidden', !(state.edit && state.tool === 'draw'));
+    const drawBar = state.edit && state.tool === 'draw';
+    $('bar-draw').classList.toggle('hidden', !drawBar);
 
     $('seg-tool').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.tool === state.tool));
-    $('seg-sub').querySelectorAll('button[data-sub]').forEach(b => b.classList.toggle('active', b.dataset.sub === state.sub));
+    $('seg-sub').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.sub === state.sub));
     $('seg-side').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.side === state.side));
+    $('seg-eraser').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.er === state.eraser));
+    $('seg-cat').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.cat === state.stampCat));
+    $('seg-stampmode').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.sm === state.stampMode));
+    $('btn-landonly').classList.toggle('on', state.landOnly);
     $('view-pin').classList.toggle('active', state.viewTarget === 'pin');
     $('view-country').classList.toggle('active', state.viewTarget === 'country');
     $('btn-rivers').classList.toggle('active', state.showRivers);
 
-    const s = state.sub;
-    $('opt-pen').classList.toggle('hidden', s !== 'pen');
-    $('opt-width').classList.toggle('hidden', !(s === 'pen' || s === 'eraser'));
-    $('width-label').textContent = s === 'eraser' ? '消しゴム' : '太さ';
-    $('opt-pattern').classList.toggle('hidden', !(s === 'lasso' || s === 'country-fill'));
-    markChips($('pattern-chips'), state.pattern);
+    const s = state.sub, agri = stampDef().cat === 'agri';
+    const show = (id, v) => $(id).classList.toggle('hidden', !v);
+    show('opt-pen', s === 'pen');
+    show('opt-eraser', s === 'eraser');
+    show('opt-text', s === 'text');
+    show('opt-stamp', s === 'stamp');
+    show('opt-stamp-pal', s === 'stamp');
+    show('seg-stampmode', s === 'stamp' && agri);
+    show('opt-target', needTarget());
+    show('opt-pattern', s === 'country-fill' || s === 'lasso');
+    show('opt-width', s === 'pen' || (s === 'eraser' && state.eraser === 'normal') || s === 'text' || s === 'stamp');
+    $('width-label').textContent = s === 'eraser' ? '消しゴム' : s === 'text' ? '文字サイズ' : s === 'stamp' ? 'サイズ' : '太さ';
+    $('size-slider').value = state.sizeT[sizeKey()];
+    $('color-picker').value = state.color;
+    $('text-color-picker').value = state.color;
+    $('fill-color').value = state.fillColor;
 
+    const tf = byKey.get(state.lassoKey);
+    $('target-name').textContent = tf ? tf._name : '未選択（国をタップ）';
+    $('target-name').classList.toggle('none', !tf);
+    $('btn-target-clear').classList.toggle('hidden', !tf);
+
+    markChips($('pattern-chips'), state.pattern);
     container.classList.toggle('editing', state.edit);
     updateUndoButtons();
+    if (drawBar) updateSizePreview();
 
     const hint = $('mode-hint');
-    if (state.edit) {
-      const h = HINTS[state.tool === 'draw' ? 'draw:' + state.sub : state.tool];
-      hint.textContent = h ? h() : '';
-      hint.classList.toggle('hidden', !h);
-    } else hint.classList.add('hidden');
+    if (state.edit) { hint.textContent = hintText(); hint.classList.remove('hidden'); }
+    else hint.classList.add('hidden');
     syncDock();
   }
 
@@ -1121,16 +1754,28 @@
   function setEdit(on) {
     if (state.edit === on) return;
     abortGesture();
+    finalizeText();
     if (state.edit) save();
-    closeMemo();                        // 閉じてから編集可否を切り替える
+    closeMemo();
     state.edit = on;
+    state.lassoKey = null;
     if (on) state.tool = 'pin';          // 編集を開くたびに「ピン」から始める
     updateUI();
+    renderHighlight();
     if (state.panel === 'layer') renderLayers();
   }
 
+  function setSub(sub) {
+    abortGesture();
+    finalizeText();
+    state.sub = sub;
+    state.lassoKey = null;
+    updateUI();
+    renderHighlight();
+  }
+
   /* =========================================================
-   * イベント束ね
+   * イベント
    * ======================================================= */
   function bind() {
     $('btn-edit').onclick = () => setEdit(!state.edit);
@@ -1139,24 +1784,28 @@
 
     $('seg-tool').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
-      abortGesture(); closeMemo();
+      abortGesture(); finalizeText(); closeMemo();
       state.tool = b.dataset.tool;
-      updateUI();
+      state.lassoKey = null;
+      updateUI(); renderHighlight();
     });
-    $('seg-sub').addEventListener('click', e => {
-      const b = e.target.closest('button[data-sub]'); if (!b) return;
-      abortGesture();
-      state.sub = b.dataset.sub;
-      updateUI();
-    });
-    $('seg-side').addEventListener('click', e => {
+    $('seg-sub').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setSub(b.dataset.sub); });
+    $('seg-side').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { state.side = b.dataset.side; updateUI(); } });
+    $('seg-eraser').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { abortGesture(); state.eraser = b.dataset.er; updateUI(); } });
+    $('seg-stampmode').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
-      state.side = b.dataset.side;
-      updateUI();
+      state.stampMode = b.dataset.sm; state.lassoKey = null; updateUI(); renderHighlight();
     });
+    $('btn-landonly').onclick = () => { state.landOnly = !state.landOnly; updateUI(); };
     $('btn-clear-layer').onclick = clearActiveLayer;
-    $('color-picker').oninput = e => { state.color = e.target.value; };
-    $('stroke-width').oninput = e => { state.width = parseFloat(e.target.value) || 3; };
+    $('btn-target-clear').onclick = () => { state.lassoKey = null; updateUI(); renderHighlight(); };
+
+    const setColor = v => { state.color = v; $('color-picker').value = v; $('text-color-picker').value = v; updateSizePreview(); };
+    $('color-picker').oninput = e => setColor(e.target.value);
+    $('text-color-picker').oninput = e => setColor(e.target.value);
+    $('fill-color').oninput = e => { state.fillColor = e.target.value; rebuildPatternChips(); };
+    $('size-slider').oninput = e => { state.sizeT[sizeKey()] = +e.target.value; updateSizePreview(); };
+
     $('btn-undo').onclick = undo;
     $('btn-redo').onclick = redo;
 
@@ -1177,7 +1826,6 @@
     };
     $('btn-reset-view').onclick = () => { fitView(); applyTf(); };
 
-    // ピン
     $('btn-close-pin').onclick = () => closeMemo();
     $('pin-title').addEventListener('input', () => {
       const p = curPin(); if (!p || !state.edit) return;
@@ -1188,11 +1836,11 @@
       const p = curPin(); if (!p || !state.edit) return;
       p.memo = $('pin-memo').value; saveSoon();
     });
-    $('btn-save-pin').onclick = () => { if (!state.edit) return; save(); showToast('保存しました'); closeMemo(); };
+    $('btn-save-pin').onclick = () => { if (!state.edit) return; save(); closeMemo(); };
     $('btn-delete-pin').onclick = () => {
       if (!state.edit) return;
       const p = curPin(); if (!p) return;
-      if (!confirm(`ピン「${p.title || '(無題)'}」を削除しますか？`)) return;
+      if (p.title.trim() && !confirm(`ピン「${p.title}」を削除しますか？`)) return;
       state.pins = state.pins.filter(x => x !== p);
       state.selectedPinId = null;
       save(); closeMemo(); renderPins();
@@ -1209,7 +1857,6 @@
       kc.appendChild(b);
     });
 
-    // 国メモ
     $('btn-close-country').onclick = () => closeMemo();
     $('country-memo').addEventListener('input', () => {
       const key = state.selectedCountryKey; if (!key || !state.edit) return;
@@ -1219,18 +1866,17 @@
     });
     $('btn-save-country').onclick = () => { if (!state.edit) return; save(); showToast('保存しました'); closeMemo(); };
 
-    buildChips($('pattern-chips'), false, pid => { state.pattern = pid; markChips($('pattern-chips'), pid); });
-    buildChips($('country-chips'), true, pid => {
-      if (!state.edit || !state.selectedCountryKey) return;
-      setCountryPattern(state.selectedCountryKey, pid);
-      renderCountryChips();
-    });
+    rebuildPatternChips();
+    buildStampUI();
+    bindText();
 
     window.addEventListener('keydown', e => {
       if (e.target.matches('input, textarea')) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && state.edit) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-      else if (e.key === 'Escape') { abortGesture(); closeMemo(); if (state.panel === 'layer') setPanel(null); }
+      else if (e.key === 'Escape') { abortGesture(); finalizeText(); closeMemo(); if (state.panel === 'layer') setPanel(null); }
     });
+    // 選択状態（青い反転）を出さない
+    document.addEventListener('selectstart', e => { if (!e.target.closest || !e.target.closest('input, textarea')) e.preventDefault(); });
 
     window.addEventListener('resize', () => { size(); syncDock(); applyTf(); });
     if (window.ResizeObserver) new ResizeObserver(syncDock).observe($('dock'));
@@ -1263,7 +1909,6 @@
     renderPins();
     applyTf();
     $('loading').classList.add('hidden');
-    
   }
 
   boot();

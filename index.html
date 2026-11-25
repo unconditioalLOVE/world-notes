@@ -10,13 +10,30 @@
 <body>
   <div id="app">
 
-    <!-- 重なり順（下→上）：陸地+塗り → 落書き(国境の下) → 国境・河川 → 落書き(国境の上) → ピン -->
+    <!-- 重なり順（下→上）：陸地+塗り → 落書き(国境の下) → 国境・河川 → 落書き/スタンプ/文字(国境の上) → ガイド線 → ピン → 工業スタンプ -->
     <div id="map-container">
       <svg id="svg-base"></svg>
       <canvas id="canvas-below"></canvas>
       <svg id="svg-lines"></svg>
       <canvas id="canvas-above"></canvas>
+      <svg id="svg-guides"></svg>
       <svg id="svg-pins"></svg>
+      <canvas id="canvas-top"></canvas>
+    </div>
+
+    <!-- テキスト編集（選択中のテキスト） -->
+    <div id="text-editor" class="hidden">
+      <div class="te-bar">
+        <button id="te-move" class="te-btn" title="ドラッグで移動">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          移動
+        </button>
+        <button id="te-del" class="te-btn danger" title="削除">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          削除
+        </button>
+      </div>
+      <textarea id="te-input" rows="1" spellcheck="false" placeholder="文字を入力"></textarea>
     </div>
 
     <div id="mode-hint" class="hidden"></div>
@@ -27,32 +44,78 @@
 
       <!-- 落書きオプション -->
       <div id="bar-draw" class="bar col hidden">
-        <div class="row" id="seg-sub">
-          <div class="seg">
+        <div class="row">
+          <div class="seg" id="seg-sub">
             <button data-sub="pen">ペン</button>
             <button data-sub="eraser">消しゴム</button>
-            <button data-sub="stroke-eraser">線消し</button>
-            <button data-sub="lasso">投げ縄</button>
             <button data-sub="country-fill">国塗り</button>
-            <button data-sub="fill-eraser">塗り消し</button>
+            <button data-sub="lasso">投げ縄</button>
+            <button data-sub="text">テキスト</button>
+            <button data-sub="stamp">スタンプ</button>
           </div>
-          <button id="btn-clear-layer" class="chip-btn danger" title="このレイヤーの落書きと塗りを全消し">全消し</button>
         </div>
+
+        <!-- ペン -->
         <div class="row opt" id="opt-pen">
           <span class="opt-label">線の位置</span>
           <div class="seg" id="seg-side">
             <button data-side="above">国境の上</button>
             <button data-side="below">国境の下</button>
           </div>
+          <button id="btn-landonly" class="toggle" title="オンにすると、海の上には描けません（国境は跨げます）">国上のみ</button>
           <input type="color" id="color-picker" value="#1a1a1a" title="色" />
         </div>
-        <div class="row opt" id="opt-width">
-          <span class="opt-label" id="width-label">太さ</span>
-          <input type="range" id="stroke-width" min="1" max="24" value="3" step="0.5" title="太さ" />
+
+        <!-- 消しゴム -->
+        <div class="row opt hidden" id="opt-eraser">
+          <div class="seg" id="seg-eraser">
+            <button data-er="normal">消しゴム</button>
+            <button data-er="stroke">線消し</button>
+            <button data-er="fill">塗り消し</button>
+            <button data-er="stamp">スタンプ消し</button>
+          </div>
+          <button id="btn-clear-layer" class="chip-btn danger" title="このレイヤーの落書き・塗り・スタンプ・文字を全消し">全消し</button>
         </div>
+
+        <!-- テキスト -->
+        <div class="row opt hidden" id="opt-text">
+          <span class="opt-label">文字色</span>
+          <input type="color" id="text-color-picker" value="#1a1a1a" title="文字色" />
+          <span class="opt-note">地図をタップして文字を置く</span>
+        </div>
+
+        <!-- スタンプ -->
+        <div class="row opt hidden" id="opt-stamp">
+          <div class="seg" id="seg-cat"></div>
+          <div class="seg" id="seg-stampmode">
+            <button data-sm="tap">タップ</button>
+            <button data-sm="lasso">投げ縄で敷き詰め</button>
+          </div>
+        </div>
+        <div class="row opt hidden" id="opt-stamp-pal">
+          <div id="stamp-pal" class="pal"></div>
+        </div>
+
+        <!-- 投げ縄の対象国 -->
+        <div class="row opt hidden" id="opt-target">
+          <span class="opt-label">対象の国</span>
+          <span id="target-name" class="target-name">未選択（国をタップ）</span>
+          <button id="btn-target-clear" class="chip-btn hidden">解除</button>
+        </div>
+
+        <!-- 模様 -->
         <div class="row opt hidden" id="opt-pattern">
           <span class="opt-label">模様</span>
           <div id="pattern-chips" class="chips"></div>
+          <input type="color" id="fill-color" value="#111111" title="模様の色" />
+        </div>
+
+        <!-- 太さ・大きさ -->
+        <div class="row opt" id="opt-width">
+          <span class="opt-label" id="width-label">太さ</span>
+          <input type="range" id="size-slider" min="0" max="100" value="57" step="1" />
+          <div id="size-prev" class="size-prev"></div>
+          <span id="size-px" class="opt-note"></span>
         </div>
       </div>
 
@@ -125,20 +188,18 @@
         </button>
       </div>
       <div class="panel-body">
-        <!-- 閲覧：タイトルとメモだけ -->
         <div class="view-card view-only">
           <div id="pin-v-badge" class="badge hidden">首都</div>
           <h2 id="pin-v-title"></h2>
           <p id="pin-v-memo" class="hidden"></p>
         </div>
-        <!-- 編集 -->
         <div class="edit-only">
           <div class="memo-section">
             <label>属性</label>
             <div id="kind-chips" class="kind-chips"></div>
           </div>
           <div class="memo-section">
-            <label>タイトル</label>
+            <label>タイトル（空のままだと自動で削除されます）</label>
             <input type="text" id="pin-title" placeholder="タイトル" />
           </div>
           <div class="memo-section">
@@ -175,7 +236,7 @@
             </div>
           </div>
           <div class="memo-section">
-            <label>国全体の塗りパターン</label>
+            <label>国全体の塗りパターン（色は「国塗り」の色）</label>
             <div id="country-chips" class="chips wrap"></div>
             <p class="note" id="country-layer-note"></p>
           </div>
