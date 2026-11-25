@@ -686,8 +686,8 @@
 
     try {
       const [countries, rivers] = await Promise.all([
-        d3.json('data/countries.geojson'),
-        d3.json('data/rivers.geojson')
+        d3.json('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson'),
+        d3.json('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_rivers_lake_centerlines.geojson')
       ]);
       state.countryFeatures = countries;
       state.riverFeatures = rivers;
