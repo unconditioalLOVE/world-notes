@@ -1,14 +1,15 @@
 (() => {
   'use strict';
 
-  // ========== State ==========
   const state = {
-    countries: {},      // ISO -> { memo, cities: [{id,name,memo}] }
-    layers: [],         // [{id, name, visible, strokes: [{points, color, width, type}]}]
+    countries: {},
+    pins: [],
+    layers: [],
     activeLayerId: null,
     selectedCountry: null,
+    selectedPin: null,
     drawMode: false,
-    tool: 'pen',        // pen | eraser
+    tool: 'pen',
     color: '#1a1a1a',
     strokeWidth: 3,
     transform: { x: 0, y: 0, k: 1 },
@@ -22,9 +23,10 @@
     height: 0,
     countryFeatures: null,
     riverFeatures: null,
+    pointerDown: null,
+    isPanning: false,
   };
 
-  // Japanese country names (subset + fallback)
   const JA_NAMES = {
     AF: 'アフガニスタン', AL: 'アルバニア', DZ: 'アルジェリア', AO: 'アンゴラ',
     AR: 'アルゼンチン', AM: 'アルメニア', AU: 'オーストラリア', AT: 'オーストリア',
@@ -66,15 +68,12 @@
     EH: '西サハラ', XK: 'コソボ', GL: 'グリーンランド', PR: 'プエルトリコ'
   };
 
-  // ========== DOM ==========
   const svg = d3.select('#map-svg');
   const canvas = document.getElementById('draw-canvas');
   const ctx = canvas.getContext('2d');
   const mapContainer = document.getElementById('map-container');
   const toastEl = document.getElementById('toast');
-
-  // ========== Storage ==========
-  const STORAGE_KEY = 'world-notes-v1';
+  const STORAGE_KEY = 'world-notes-v2';
 
   function loadData() {
     try {
@@ -82,49 +81,31 @@
       if (raw) {
         const data = JSON.parse(raw);
         state.countries = data.countries || {};
+        state.pins = data.pins || [];
         state.layers = data.layers || [];
-        if (state.layers.length === 0) {
-          createDefaultLayer();
-        } else {
-          state.activeLayerId = state.layers[0].id;
-        }
-      } else {
-        createDefaultLayer();
-      }
-    } catch (e) {
-      console.warn('Load failed', e);
-      createDefaultLayer();
-    }
+        if (state.layers.length === 0) createDefaultLayer();
+        else state.activeLayerId = state.layers[0].id;
+      } else createDefaultLayer();
+    } catch (e) { createDefaultLayer(); }
   }
 
   function saveData() {
     try {
-      const data = {
-        countries: state.countries,
-        layers: state.layers
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.warn('Save failed', e);
-      showToast('保存に失敗しました（容量超過の可能性）');
-    }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        countries: state.countries, pins: state.pins, layers: state.layers
+      }));
+    } catch (e) { showToast('保存に失敗しました'); }
   }
 
   function createDefaultLayer() {
     const id = 'layer_' + Date.now();
-    state.layers = [{
-      id,
-      name: 'メモ',
-      visible: true,
-      strokes: []
-    }];
+    state.layers = [{ id, name: 'メモ', visible: true, strokes: [] }];
     state.activeLayerId = id;
   }
 
-  // ========== Map Rendering ==========
   function initSize() {
-    state.width = mapContainer.clientWidth;
-    state.height = mapContainer.clientHeight;
+    state.width = mapContainer.clientWidth || window.innerWidth;
+    state.height = mapContainer.clientHeight || window.innerHeight;
     svg.attr('width', state.width).attr('height', state.height);
     canvas.width = state.width;
     canvas.height = state.height;
@@ -132,62 +113,45 @@
 
   function createProjection() {
     state.projection = d3.geoMercator()
-      .scale(state.width / (2 * Math.PI) * 0.9)
-      .translate([state.width / 2, state.height / 1.6]);
+      .scale(state.width / (2 * Math.PI) * 0.92)
+      .translate([state.width / 2, state.height / 1.55]);
     state.pathGen = d3.geoPath().projection(state.projection);
   }
 
   function renderMap() {
     svg.selectAll('*').remove();
-
     const g = svg.append('g').attr('class', 'map-group');
 
-    // Countries
-    const countriesG = g.append('g').attr('class', 'countries');
-    countriesG.selectAll('path')
+    g.append('g').attr('class', 'countries')
+      .selectAll('path')
       .data(state.countryFeatures.features)
       .join('path')
       .attr('class', d => {
         const iso = (d.properties.iso_a2 || '').toUpperCase();
         let cls = 'country';
-        if (iso && state.countries[iso] && (state.countries[iso].memo || (state.countries[iso].cities && state.countries[iso].cities.length))) {
-          cls += ' has-memo';
-        }
+        if (iso && state.countries[iso] && (state.countries[iso].memo || (state.countries[iso].cities && state.countries[iso].cities.length))) cls += ' has-memo';
         if (state.selectedCountry === iso) cls += ' selected';
         return cls;
       })
       .attr('d', state.pathGen)
-      .attr('data-iso', d => (d.properties.iso_a2 || '').toUpperCase())
-      .on('click', (event, d) => {
-        if (state.drawMode) return;
-        event.stopPropagation();
-        const iso = (d.properties.iso_a2 || '').toUpperCase();
-        if (!iso || iso === '-99') return;
-        openMemo(iso, d.properties);
-      });
+      .attr('data-iso', d => (d.properties.iso_a2 || '').toUpperCase());
 
-    // Rivers
-    const riversG = g.append('g').attr('class', 'rivers');
-    riversG.selectAll('path')
+    g.append('g').attr('class', 'rivers')
+      .selectAll('path')
       .data(state.riverFeatures.features)
       .join('path')
       .attr('class', 'river')
       .attr('d', state.pathGen);
 
-    // Memo markers
-    const markersG = g.append('g').attr('class', 'markers');
-    Object.keys(state.countries).forEach(iso => {
-      const c = state.countries[iso];
-      if (!c || (!c.memo && (!c.cities || !c.cities.length))) return;
-      const feat = state.countryFeatures.features.find(f => (f.properties.iso_a2 || '').toUpperCase() === iso);
-      if (!feat) return;
-      const centroid = state.pathGen.centroid(feat);
-      if (!centroid || isNaN(centroid[0])) return;
-      markersG.append('circle')
-        .attr('class', 'memo-marker')
-        .attr('cx', centroid[0])
-        .attr('cy', centroid[1])
-        .attr('r', 3);
+    const pinsG = g.append('g').attr('class', 'pins');
+    state.pins.forEach(pin => {
+      const pg = pinsG.append('g')
+        .attr('class', 'pin')
+        .attr('data-id', pin.id)
+        .attr('transform', 'translate(' + pin.x + ',' + pin.y + ')')
+        .style('cursor', 'pointer');
+      pg.append('circle').attr('r', 7).attr('fill', '#1a1a1a').attr('stroke', '#fff').attr('stroke-width', 1.5);
+      pg.append('circle').attr('r', 2.5).attr('fill', '#fff');
     });
 
     applyTransform();
@@ -195,20 +159,13 @@
 
   function applyTransform() {
     const { x, y, k } = state.transform;
-    svg.select('.map-group')
-      .attr('transform', `translate(${x},${y}) scale(${k})`);
-    // scale stroke widths inversely so borders stay thin
-    svg.selectAll('.country').attr('stroke-width', 0.5 / k);
-    svg.selectAll('.river').attr('stroke-width', 1.2 / k);
-    svg.selectAll('.memo-marker').attr('r', 3 / k);
+    svg.select('.map-group').attr('transform', 'translate(' + x + ',' + y + ') scale(' + k + ')');
+    svg.selectAll('.country').attr('stroke-width', 0.6 / k);
+    svg.selectAll('.river').attr('stroke-width', 1.1 / k);
     redrawCanvas();
   }
 
-  // ========== Drawing ==========
-  function getActiveLayer() {
-    return state.layers.find(l => l.id === state.activeLayerId);
-  }
-
+  function getActiveLayer() { return state.layers.find(l => l.id === state.activeLayerId); }
   function screenToMap(sx, sy) {
     const { x, y, k } = state.transform;
     return [(sx - x) / k, (sy - y) / k];
@@ -220,49 +177,43 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(k, k);
-
     state.layers.forEach(layer => {
       if (!layer.visible) return;
       layer.strokes.forEach(stroke => {
         if (!stroke.points || stroke.points.length < 2) return;
         ctx.beginPath();
-        ctx.strokeStyle = stroke.type === 'eraser' ? 'rgba(0,0,0,0)' : stroke.color;
         ctx.lineWidth = stroke.width;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         if (stroke.type === 'eraser') {
           ctx.globalCompositeOperation = 'destination-out';
+          ctx.strokeStyle = 'rgba(0,0,0,1)';
         } else {
           ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = stroke.color;
         }
         ctx.moveTo(stroke.points[0][0], stroke.points[0][1]);
-        for (let i = 1; i < stroke.points.length; i++) {
-          ctx.lineTo(stroke.points[i][0], stroke.points[i][1]);
-        }
+        for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(stroke.points[i][0], stroke.points[i][1]);
         ctx.stroke();
       });
     });
-
-    // current stroke
     if (state.currentStroke && state.currentStroke.points.length > 1) {
       const s = state.currentStroke;
       ctx.beginPath();
-      ctx.strokeStyle = s.type === 'eraser' ? 'rgba(0,0,0,0)' : s.color;
       ctx.lineWidth = s.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       if (s.type === 'eraser') {
         ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
       } else {
         ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = s.color;
       }
       ctx.moveTo(s.points[0][0], s.points[0][1]);
-      for (let i = 1; i < s.points.length; i++) {
-        ctx.lineTo(s.points[i][0], s.points[i][1]);
-      }
+      for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i][0], s.points[i][1]);
       ctx.stroke();
     }
-
     ctx.restore();
   }
 
@@ -271,35 +222,19 @@
     const layer = getActiveLayer();
     if (!layer) return;
     state.isDrawing = true;
-    const pt = screenToMap(sx, sy);
-    state.currentStroke = {
-      points: [pt],
-      color: state.color,
-      width: state.strokeWidth / state.transform.k, // keep visual width roughly constant? or absolute in map space
-      type: state.tool
-    };
-    // Actually store width in map space so zoom keeps relative thickness
-    state.currentStroke.width = state.strokeWidth;
+    state.currentStroke = { points: [screenToMap(sx, sy)], color: state.color, width: state.strokeWidth, type: state.tool };
   }
-
   function continueStroke(sx, sy) {
     if (!state.isDrawing || !state.currentStroke) return;
-    const pt = screenToMap(sx, sy);
-    state.currentStroke.points.push(pt);
+    state.currentStroke.points.push(screenToMap(sx, sy));
     redrawCanvas();
   }
-
   function endStroke() {
     if (!state.isDrawing || !state.currentStroke) return;
     state.isDrawing = false;
     const layer = getActiveLayer();
     if (layer && state.currentStroke.points.length > 1) {
-      // push undo
-      state.undoStack.push({
-        layerId: layer.id,
-        stroke: JSON.parse(JSON.stringify(state.currentStroke)),
-        action: 'add'
-      });
+      state.undoStack.push({ layerId: layer.id, stroke: JSON.parse(JSON.stringify(state.currentStroke)) });
       state.redoStack = [];
       layer.strokes.push(state.currentStroke);
       saveData();
@@ -307,216 +242,159 @@
     state.currentStroke = null;
     redrawCanvas();
   }
-
   function undo() {
     const last = state.undoStack.pop();
     if (!last) return;
     const layer = state.layers.find(l => l.id === last.layerId);
-    if (!layer) return;
-    if (last.action === 'add') {
-      const idx = layer.strokes.findIndex(s => s === last.stroke || JSON.stringify(s) === JSON.stringify(last.stroke));
-      // better: just pop last stroke if matches
-      if (layer.strokes.length) {
-        const removed = layer.strokes.pop();
-        state.redoStack.push({ layerId: layer.id, stroke: removed, action: 'add' });
-      }
+    if (layer && layer.strokes.length) {
+      const removed = layer.strokes.pop();
+      state.redoStack.push({ layerId: layer.id, stroke: removed });
+      saveData(); redrawCanvas();
     }
-    saveData();
-    redrawCanvas();
   }
-
   function redo() {
     const last = state.redoStack.pop();
     if (!last) return;
     const layer = state.layers.find(l => l.id === last.layerId);
-    if (!layer) return;
-    layer.strokes.push(last.stroke);
-    state.undoStack.push(last);
-    saveData();
-    redrawCanvas();
+    if (layer) {
+      layer.strokes.push(last.stroke);
+      state.undoStack.push(last);
+      saveData(); redrawCanvas();
+    }
   }
 
-  // ========== Interaction (pan / zoom / draw) ==========
-  let lastTouchDist = 0;
-  let isPanning = false;
-  let panStart = null;
+  const TAP_THRESHOLD = 10;
+  const TAP_TIME = 300;
 
   function onPointerDown(e) {
-    e.preventDefault();
-    const sx = e.clientX ?? (e.touches && e.touches[0].clientX);
-    const sy = e.clientY ?? (e.touches && e.touches[0].clientY);
-    if (state.drawMode) {
-      startStroke(sx, sy);
-      return;
-    }
-    isPanning = true;
-    panStart = { x: sx, y: sy, tx: state.transform.x, ty: state.transform.y };
-    mapContainer.style.cursor = 'grabbing';
+    if (e.touches && e.touches.length > 1) return;
+    const sx = e.clientX ?? e.touches[0].clientX;
+    const sy = e.clientY ?? e.touches[0].clientY;
+    if (state.drawMode) { startStroke(sx, sy); return; }
+    state.pointerDown = { x: sx, y: sy, time: Date.now(), moved: false, tx: state.transform.x, ty: state.transform.y };
+    state.isPanning = false;
   }
 
   function onPointerMove(e) {
-    e.preventDefault();
+    if (e.touches && e.touches.length > 1) return;
     const sx = e.clientX ?? (e.touches && e.touches[0].clientX);
     const sy = e.clientY ?? (e.touches && e.touches[0].clientY);
-    if (state.drawMode && state.isDrawing) {
-      continueStroke(sx, sy);
-      return;
-    }
-    if (isPanning && panStart) {
-      state.transform.x = panStart.tx + (sx - panStart.x);
-      state.transform.y = panStart.ty + (sy - panStart.y);
+    if (sx == null) return;
+    if (state.drawMode && state.isDrawing) { continueStroke(sx, sy); return; }
+    if (!state.pointerDown) return;
+    const dx = sx - state.pointerDown.x;
+    const dy = sy - state.pointerDown.y;
+    if (Math.hypot(dx, dy) > TAP_THRESHOLD) {
+      state.pointerDown.moved = true;
+      state.isPanning = true;
+      state.transform.x = state.pointerDown.tx + dx;
+      state.transform.y = state.pointerDown.ty + dy;
       applyTransform();
+      mapContainer.style.cursor = 'grabbing';
     }
   }
 
   function onPointerUp(e) {
-    if (state.drawMode) {
-      endStroke();
-      return;
-    }
-    isPanning = false;
-    panStart = null;
+    if (state.drawMode) { endStroke(); return; }
+    if (!state.pointerDown) return;
+    const elapsed = Date.now() - state.pointerDown.time;
+    const wasTap = !state.pointerDown.moved && elapsed < TAP_TIME;
+    if (wasTap) handleTap(state.pointerDown.x, state.pointerDown.y);
+    state.pointerDown = null;
+    state.isPanning = false;
     mapContainer.style.cursor = state.drawMode ? 'crosshair' : 'grab';
+  }
+
+  function handleTap(sx, sy) {
+    const [mx, my] = screenToMap(sx, sy);
+    const hitPin = state.pins.find(p => Math.hypot(p.x - mx, p.y - my) < 16 / state.transform.k);
+    if (hitPin) { openPinMemo(hitPin); return; }
+  }
+
+  function addPinAt(sx, sy) {
+    const [x, y] = screenToMap(sx, sy);
+    const pin = { id: 'pin_' + Date.now(), x, y, title: '', memo: '' };
+    state.pins.push(pin);
+    saveData();
+    renderMap();
+    openPinMemo(pin);
+  }
+
+  function openPinMemo(pin) {
+    state.selectedPin = pin;
+    state.selectedCountry = null;
+    document.getElementById('memo-country-name').textContent = pin.title || 'ピンメモ';
+    document.getElementById('country-memo').value = pin.memo || '';
+    document.getElementById('city-list').innerHTML = '';
+    const addCityBtn = document.getElementById('btn-add-city');
+    if (addCityBtn) addCityBtn.style.display = 'none';
+    document.getElementById('memo-panel').classList.remove('hidden');
+  }
+
+  function closeMemo() {
+    state.selectedCountry = null;
+    state.selectedPin = null;
+    document.getElementById('memo-panel').classList.add('hidden');
+    const addCityBtn = document.getElementById('btn-add-city');
+    if (addCityBtn) addCityBtn.style.display = '';
+    renderMap();
   }
 
   function onWheel(e) {
     e.preventDefault();
-    const sx = e.clientX;
-    const sy = e.clientY;
+    const sx = e.clientX, sy = e.clientY;
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    const newK = Math.max(0.4, Math.min(20, state.transform.k * factor));
-    // zoom toward pointer
+    const newK = Math.max(0.35, Math.min(18, state.transform.k * factor));
     state.transform.x = sx - (sx - state.transform.x) * (newK / state.transform.k);
     state.transform.y = sy - (sy - state.transform.y) * (newK / state.transform.k);
     state.transform.k = newK;
     applyTransform();
   }
 
-  // Touch pinch
+  let lastTouchDist = 0;
   function onTouchStart(e) {
     if (e.touches.length === 2) {
-      lastTouchDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-    } else if (e.touches.length === 1) {
-      onPointerDown(e.touches[0]);
-    }
+      lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    } else if (e.touches.length === 1) onPointerDown(e.touches[0]);
   }
-
   function onTouchMove(e) {
     e.preventDefault();
     if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
+      const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       if (lastTouchDist > 0) {
         const factor = dist / lastTouchDist;
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        const newK = Math.max(0.4, Math.min(20, state.transform.k * factor));
+        const newK = Math.max(0.35, Math.min(18, state.transform.k * factor));
         state.transform.x = midX - (midX - state.transform.x) * (newK / state.transform.k);
         state.transform.y = midY - (midY - state.transform.y) * (newK / state.transform.k);
         state.transform.k = newK;
         applyTransform();
       }
       lastTouchDist = dist;
-    } else if (e.touches.length === 1 && !state.drawMode) {
-      onPointerMove(e.touches[0]);
-    } else if (state.drawMode && e.touches.length === 1) {
-      continueStroke(e.touches[0].clientX, e.touches[0].clientY);
+    } else if (e.touches.length === 1) {
+      if (state.drawMode) continueStroke(e.touches[0].clientX, e.touches[0].clientY);
+      else onPointerMove(e.touches[0]);
     }
   }
-
   function onTouchEnd(e) {
     if (e.touches.length < 2) lastTouchDist = 0;
-    if (e.touches.length === 0) {
-      onPointerUp(e);
-    }
+    if (e.touches.length === 0) onPointerUp(e);
   }
 
-  // ========== Memo Panel ==========
-  function openMemo(iso, props) {
-    state.selectedCountry = iso;
-    const nameEn = props.name || props.admin || iso;
-    const nameJa = JA_NAMES[iso] || nameEn;
-    document.getElementById('memo-country-name').textContent = `${nameJa} / ${nameEn}`;
-
-    if (!state.countries[iso]) {
-      state.countries[iso] = { memo: '', cities: [] };
-    }
-    document.getElementById('country-memo').value = state.countries[iso].memo || '';
-    renderCityList(iso);
-    document.getElementById('memo-panel').classList.remove('hidden');
-    renderMap(); // update selection
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove('hidden');
+    setTimeout(() => toastEl.classList.add('hidden'), 2000);
   }
 
-  function closeMemo() {
-    state.selectedCountry = null;
-    document.getElementById('memo-panel').classList.add('hidden');
-    renderMap();
-  }
-
-  function renderCityList(iso) {
-    const list = document.getElementById('city-list');
-    list.innerHTML = '';
-    const cities = state.countries[iso]?.cities || [];
-    cities.forEach((city, idx) => {
-      const div = document.createElement('div');
-      div.className = 'city-item';
-      div.innerHTML = `
-        <input type="text" value="${escapeHtml(city.name)}" data-idx="${idx}" class="city-name" placeholder="都市名" />
-        <textarea data-idx="${idx}" class="city-memo" placeholder="メモ...">${escapeHtml(city.memo || '')}</textarea>
-        <div class="city-actions">
-          <button class="small-btn save-city" data-idx="${idx}">保存</button>
-          <button class="small-btn danger-btn del-city" data-idx="${idx}">削除</button>
-        </div>
-      `;
-      list.appendChild(div);
-    });
-
-    list.querySelectorAll('.save-city').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const i = +btn.dataset.idx;
-        const name = list.querySelector(`.city-name[data-idx="${i}"]`).value.trim();
-        const memo = list.querySelector(`.city-memo[data-idx="${i}"]`).value;
-        if (!name) return;
-        state.countries[iso].cities[i].name = name;
-        state.countries[iso].cities[i].memo = memo;
-        saveData();
-        showToast('都市メモを保存しました');
-        renderMap();
-      });
-    });
-
-    list.querySelectorAll('.del-city').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const i = +btn.dataset.idx;
-        state.countries[iso].cities.splice(i, 1);
-        saveData();
-        renderCityList(iso);
-        renderMap();
-      });
-    });
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // ========== Layers UI ==========
   function renderLayers() {
     const list = document.getElementById('layer-list');
     list.innerHTML = '';
     state.layers.forEach(layer => {
       const div = document.createElement('div');
       div.className = 'layer-item' + (layer.id === state.activeLayerId ? ' active' : '');
-      div.innerHTML = `
-        <button class="eye ${layer.visible ? 'visible' : ''}" data-id="${layer.id}" title="表示切替">${layer.visible ? '👁' : '👁‍🗨'}</button>
-        <input type="text" value="${escapeHtml(layer.name)}" data-id="${layer.id}" class="layer-name" />
-        <button class="delete-layer" data-id="${layer.id}" title="削除">×</button>
-      `;
+      div.innerHTML = '<button class="eye ' + (layer.visible ? 'visible' : '') + '" data-id="' + layer.id + '">' + (layer.visible ? '👁' : '👁‍🗨') + '</button><input type="text" value="' + escapeHtml(layer.name) + '" data-id="' + layer.id + '" class="layer-name" /><button class="delete-layer" data-id="' + layer.id + '">×</button>';
       div.addEventListener('click', (e) => {
         if (e.target.closest('button') || e.target.closest('input')) return;
         state.activeLayerId = layer.id;
@@ -524,166 +402,125 @@
       });
       list.appendChild(div);
     });
-
     list.querySelectorAll('.eye').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.onclick = (e) => {
         e.stopPropagation();
-        const id = btn.dataset.id;
-        const layer = state.layers.find(l => l.id === id);
-        if (layer) {
-          layer.visible = !layer.visible;
-          saveData();
-          renderLayers();
-          redrawCanvas();
-        }
-      });
+        const layer = state.layers.find(l => l.id === btn.dataset.id);
+        if (layer) { layer.visible = !layer.visible; saveData(); renderLayers(); redrawCanvas(); }
+      };
     });
-
     list.querySelectorAll('.layer-name').forEach(input => {
-      input.addEventListener('change', () => {
+      input.onchange = () => {
         const layer = state.layers.find(l => l.id === input.dataset.id);
-        if (layer) {
-          layer.name = input.value.trim() || '無題';
-          saveData();
-        }
-      });
+        if (layer) { layer.name = input.value.trim() || '無題'; saveData(); }
+      };
     });
-
     list.querySelectorAll('.delete-layer').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.onclick = (e) => {
         e.stopPropagation();
-        if (state.layers.length <= 1) {
-          showToast('最低1つのレイヤーが必要です');
-          return;
-        }
-        const id = btn.dataset.id;
-        state.layers = state.layers.filter(l => l.id !== id);
-        if (state.activeLayerId === id) state.activeLayerId = state.layers[0].id;
-        saveData();
-        renderLayers();
-        redrawCanvas();
-      });
+        if (state.layers.length <= 1) return showToast('最低1つ必要です');
+        state.layers = state.layers.filter(l => l.id !== btn.dataset.id);
+        if (state.activeLayerId === btn.dataset.id) state.activeLayerId = state.layers[0].id;
+        saveData(); renderLayers(); redrawCanvas();
+      };
     });
   }
 
-  function showToast(msg) {
-    toastEl.textContent = msg;
-    toastEl.classList.remove('hidden');
-    setTimeout(() => toastEl.classList.add('hidden'), 2200);
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ========== Event bindings ==========
   function bindUI() {
-    document.getElementById('btn-draw-mode').addEventListener('click', () => {
+    document.getElementById('btn-draw-mode').onclick = () => {
       state.drawMode = !state.drawMode;
       document.getElementById('btn-draw-mode').classList.toggle('active', state.drawMode);
       document.getElementById('draw-tools').classList.toggle('hidden', !state.drawMode);
       mapContainer.classList.toggle('drawing', state.drawMode);
       mapContainer.style.cursor = state.drawMode ? 'crosshair' : 'grab';
-    });
-
-    document.getElementById('btn-pen').addEventListener('click', () => {
+    };
+    document.getElementById('btn-pen').onclick = () => {
       state.tool = 'pen';
       document.getElementById('btn-pen').classList.add('active');
       document.getElementById('btn-eraser').classList.remove('active');
-    });
-
-    document.getElementById('btn-eraser').addEventListener('click', () => {
+    };
+    document.getElementById('btn-eraser').onclick = () => {
       state.tool = 'eraser';
       document.getElementById('btn-eraser').classList.add('active');
       document.getElementById('btn-pen').classList.remove('active');
-    });
-
-    document.getElementById('color-picker').addEventListener('input', (e) => {
-      state.color = e.target.value;
-    });
-
-    document.getElementById('stroke-width').addEventListener('input', (e) => {
-      state.strokeWidth = +e.target.value;
-    });
-
-    document.getElementById('btn-undo').addEventListener('click', undo);
-    document.getElementById('btn-redo').addEventListener('click', redo);
-
-    document.getElementById('btn-layers').addEventListener('click', () => {
+    };
+    document.getElementById('color-picker').oninput = e => state.color = e.target.value;
+    document.getElementById('stroke-width').oninput = e => state.strokeWidth = +e.target.value;
+    document.getElementById('btn-undo').onclick = undo;
+    document.getElementById('btn-redo').onclick = redo;
+    document.getElementById('btn-layers').onclick = () => {
       document.getElementById('layer-panel').classList.toggle('hidden');
       renderLayers();
-    });
-
-    document.getElementById('btn-close-layers').addEventListener('click', () => {
-      document.getElementById('layer-panel').classList.add('hidden');
-    });
-
-    document.getElementById('btn-add-layer').addEventListener('click', () => {
+    };
+    document.getElementById('btn-close-layers').onclick = () => document.getElementById('layer-panel').classList.add('hidden');
+    document.getElementById('btn-add-layer').onclick = () => {
       const id = 'layer_' + Date.now();
       state.layers.push({ id, name: '新しいレイヤー', visible: true, strokes: [] });
       state.activeLayerId = id;
-      saveData();
-      renderLayers();
-    });
-
-    document.getElementById('btn-reset-view').addEventListener('click', () => {
+      saveData(); renderLayers();
+    };
+    document.getElementById('btn-reset-view').onclick = () => {
       state.transform = { x: 0, y: 0, k: 1 };
       applyTransform();
-    });
+    };
+    document.getElementById('btn-close-memo').onclick = closeMemo;
 
-    document.getElementById('btn-close-memo').addEventListener('click', closeMemo);
+    document.getElementById('btn-save-country').onclick = () => {
+      if (state.selectedPin) {
+        state.selectedPin.memo = document.getElementById('country-memo').value;
+        if (!state.selectedPin.title) state.selectedPin.title = 'ピンメモ';
+        saveData();
+        showToast('ピンを保存しました');
+        closeMemo();
+        renderMap();
+        return;
+      }
+    };
 
-    document.getElementById('btn-save-country').addEventListener('click', () => {
-      const iso = state.selectedCountry;
-      if (!iso) return;
-      if (!state.countries[iso]) state.countries[iso] = { memo: '', cities: [] };
-      state.countries[iso].memo = document.getElementById('country-memo').value;
-      saveData();
-      showToast('国メモを保存しました');
-      renderMap();
-    });
+    document.getElementById('btn-delete-country').onclick = () => {
+      if (state.selectedPin) {
+        state.pins = state.pins.filter(p => p.id !== state.selectedPin.id);
+        saveData();
+        closeMemo();
+        renderMap();
+        showToast('ピンを削除しました');
+      }
+    };
 
-    document.getElementById('btn-delete-country').addEventListener('click', () => {
-      const iso = state.selectedCountry;
-      if (!iso) return;
-      delete state.countries[iso];
-      saveData();
-      closeMemo();
-      showToast('メモを削除しました');
-      renderMap();
-    });
+    let pinBtn = document.getElementById('btn-add-pin');
+    if (!pinBtn) {
+      pinBtn = document.createElement('button');
+      pinBtn.id = 'btn-add-pin';
+      pinBtn.className = 'tool-btn';
+      pinBtn.title = 'ピンを追加';
+      pinBtn.textContent = '📍';
+      const toolbar = document.getElementById('toolbar');
+      const layersBtn = document.getElementById('btn-layers');
+      toolbar.insertBefore(pinBtn, layersBtn);
+    }
+    pinBtn.onclick = () => {
+      addPinAt(state.width / 2, state.height / 2);
+      showToast('画面中央にピンを置きました');
+    };
 
-    document.getElementById('btn-add-city').addEventListener('click', () => {
-      const iso = state.selectedCountry;
-      if (!iso) return;
-      if (!state.countries[iso]) state.countries[iso] = { memo: '', cities: [] };
-      state.countries[iso].cities.push({
-        id: 'city_' + Date.now(),
-        name: '',
-        memo: ''
-      });
-      renderCityList(iso);
-    });
-
-    // Pointer events
     mapContainer.addEventListener('mousedown', onPointerDown);
     window.addEventListener('mousemove', onPointerMove);
     window.addEventListener('mouseup', onPointerUp);
     mapContainer.addEventListener('wheel', onWheel, { passive: false });
-
     mapContainer.addEventListener('touchstart', onTouchStart, { passive: false });
     mapContainer.addEventListener('touchmove', onTouchMove, { passive: false });
     mapContainer.addEventListener('touchend', onTouchEnd);
-
-    window.addEventListener('resize', () => {
-      initSize();
-      createProjection();
-      renderMap();
-    });
+    window.addEventListener('resize', () => { initSize(); createProjection(); renderMap(); });
   }
 
-  // ========== Boot ==========
   async function boot() {
     loadData();
     initSize();
     createProjection();
-
     try {
       const [countries, rivers] = await Promise.all([
         d3.json('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson'),
@@ -696,7 +533,6 @@
       showToast('地図データの読み込みに失敗しました');
       return;
     }
-
     renderMap();
     redrawCanvas();
     bindUI();
