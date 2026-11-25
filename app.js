@@ -103,8 +103,15 @@
       .join('path')
       .attr('class', 'country')
       .attr('d', state.pathGen)
-      .attr('data-name', d => d.properties?.name || d.properties?.admin || '')
-      .attr('data-iso', d => (d.properties?.iso_a2 || '').toUpperCase());
+      .attr('data-name', d => {
+        const p = d.properties || {};
+        return p.NAME || p.name || p.ADMIN || p.admin || '';
+      })
+      .attr('data-iso', d => {
+        const p = d.properties || {};
+        const iso = p.ISO_A2 || p.iso_a2 || '';
+        return String(iso).toUpperCase();
+      });
 
     const rFeats = (state.riverFeatures && state.riverFeatures.features) || [];
     g.append('g').attr('class', 'rivers' + (state.showRivers ? '' : ' hidden'))
@@ -710,14 +717,17 @@
     try {
       // Full 110m countries – includes Angola, Argentina, Albania etc.
       const [countries, rivers] = await Promise.all([
-        d3.json('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson'),
+        d3.json('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson'),
         d3.json('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_rivers_lake_centerlines.geojson')
       ]);
       state.countryFeatures = countries;
       state.riverFeatures = rivers;
 
       // sanity log
-      const names = (countries.features || []).map(f => f.properties?.name || f.properties?.admin);
+      const names = (countries.features || []).map(f => {
+        const p = f.properties || {};
+        return p.NAME || p.name || p.ADMIN || p.admin;
+      });
       const needed = ['Angola', 'Argentina', 'Albania'];
       const missing = needed.filter(n => !names.some(x => x && x.toLowerCase() === n.toLowerCase()));
       if (missing.length) console.warn('Missing countries in source:', missing);
