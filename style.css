@@ -415,7 +415,7 @@ input[readonly], textarea[readonly] {
 
 /* ---------- レイヤー ---------- */
 #layer-list { flex: 1; overflow-y: auto; padding: 14px 12px 6px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-.layer-item[data-kind="layer"] { touch-action: none; }
+/* layer-item touch-action is default so list can scroll; drag enables none in JS */
 .layer-foot { padding: 6px 12px 14px; flex-shrink: 0; }
 .layer-foot .primary-btn { width: 100%; padding: 12px; }
 
@@ -486,7 +486,7 @@ input[readonly], textarea[readonly] {
 .lactions .icon { width: 15px; height: 15px; }
 
 /* ---------- スマホ ---------- */
-@media (max-width: 600px) {
+@media (max-width: 1024px) {
   .panel {
     width: 100%;
     height: auto;
@@ -497,21 +497,32 @@ input[readonly], textarea[readonly] {
     border-radius: 18px 18px 0 0;
   }
   #app.panel-open #dock { right: 0; }
-  /* 落書きバーと同時表示時はレイヤーを下（ドック直上）に低く */
+
+  /* レイヤーを最下段、落書きメニューをその上に（上下入れ替え） */
   #layer-panel {
     height: auto;
-    max-height: min(42vh, 340px);
-    bottom: var(--dock-h);
+    max-height: min(40vh, 360px);
+    bottom: 0 !important;
+    z-index: 28;
   }
-  #app.edit #layer-panel {
-    max-height: min(38vh, 320px);
+  #app.panel-open #dock {
+    bottom: var(--layer-h, 0px) !important;
+    z-index: 29;
+    transition: bottom 0.15s ease;
   }
+  #app:not(.panel-open) #dock {
+    bottom: 0 !important;
+  }
+
   textarea { min-height: 110px; }
   #mode-hint { font-size: 11px; }
   .tab { width: 52px; }
   #btn-edit { width: 58px; }
   #size-slider { width: 120px; }
   .seg button { padding: 7px 9px; font-size: 12px; }
+}
+@media (max-width: 600px) {
+  #layer-panel { max-height: min(36vh, 320px); }
 }
 
 
@@ -725,3 +736,16 @@ input[readonly], textarea[readonly] {
 .layer-insert-line.hidden { display: none; }
 #layer-list { position: relative; }
 .layer-item.dragging { opacity: 0.35; }
+
+/* 長押し時の青選択を防ぐ（フォーカス時のみ入力可） */
+.layer-item,
+.layer-item .lname,
+.layer-item .lname-static {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+#app.edit .layer-item input.lname:focus {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}

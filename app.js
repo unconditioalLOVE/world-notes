@@ -2134,8 +2134,8 @@
 
   /* ---- 長押しドラッグ：並び替え / フォルダ格納 ---- */
   let ld = null;
-  const HOLD_MS = 550;
-  const MOVE_CANCEL = 12;
+  const HOLD_MS = 750;
+  const MOVE_CANCEL = 8;
 
   function clearDropUi() {
     document.querySelectorAll('.layer-item.drop-target').forEach(el => el.classList.remove('drop-target'));
@@ -2272,7 +2272,6 @@
     };
     ld.holdT = setTimeout(() => {
       if (!ld || ld.pid !== pid) return;
-      // 長押し確定前に指が大きく動いていたらキャンセル（スクロール優先）
       ld.ready = true;
       const list = $('layer-list');
       if (list) {
@@ -2280,6 +2279,8 @@
         list.style.touchAction = 'none';
       }
       document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+      try { if (window.getSelection) window.getSelection().removeAllRanges(); } catch (err) {}
       item.classList.add('dragging');
       const g = item.cloneNode(true);
       g.classList.add('layer-ghost');
@@ -2553,8 +2554,21 @@
   }
 
   function syncDock() {
-    const h = $('dock').getBoundingClientRect().height;
+    const dock = $('dock');
+    if (!dock) return;
+    const h = dock.offsetHeight;
     document.documentElement.style.setProperty('--dock-h', Math.ceil(h) + 'px');
+    const lp = $('layer-panel');
+    const open = lp && !lp.classList.contains('hidden') && state.panel === 'layer';
+    if (open) {
+      // 高さ確定後に計測
+      requestAnimationFrame(() => {
+        const lh = lp.offsetHeight || 0;
+        document.documentElement.style.setProperty('--layer-h', Math.ceil(lh) + 'px');
+      });
+    } else {
+      document.documentElement.style.setProperty('--layer-h', '0px');
+    }
   }
 
   function setEdit(on) {
