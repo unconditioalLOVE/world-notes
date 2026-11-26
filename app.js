@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-27-v15';
+  const BUILD = '2026-11-27-v16';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -2158,6 +2158,7 @@
       document.removeEventListener('touchmove', ld._blockTouch, { passive: false });
       ld._blockTouch = null;
     }
+    if (ld.rafId) { cancelAnimationFrame(ld.rafId); ld.rafId = 0; }       // 自動スクロール停止
     if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
     const list = $('layer-list');
     if (list) {
@@ -2278,6 +2279,32 @@
     ld.ghost.style.left = x + 'px';
     ld.ghost.style.top = y + 'px';
     try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+    startAutoScroll();
+  }
+
+  /* ドラッグ中の自動スクロール：指が一覧の上端／下端に来たら一定速度でスクロール、離れたら即停止 */
+  const AS_EDGE = 48;        // 端と判定する幅(px)
+  const AS_SPEED = 420;      // スクロール速度(px/秒)・常に一定
+  function startAutoScroll() {
+    if (!ld) return;
+    let last = performance.now();
+    const tick = now => {
+      if (!ld || !ld.ready) return;
+      const dt = Math.min(now - last, 50) / 1000;
+      last = now;
+      const list = $('layer-list');
+      if (list) {
+        const r = list.getBoundingClientRect(), y = ld._ly;
+        const dir = y <= r.top + AS_EDGE ? -1 : (y >= r.bottom - AS_EDGE ? 1 : 0);
+        if (dir) {
+          const before = list.scrollTop;
+          list.scrollTop = before + dir * AS_SPEED * dt;
+          if (list.scrollTop !== before) moveDrag(ld._lx, ld._ly);        // 動いた分、挿入位置を更新（レイヤーは指に追従）
+        }
+      }
+      ld.rafId = requestAnimationFrame(tick);
+    };
+    ld.rafId = requestAnimationFrame(tick);
   }
 
   function moveDrag(x, y) {
