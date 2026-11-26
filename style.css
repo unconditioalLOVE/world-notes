@@ -646,3 +646,5 @@ input[readonly], textarea[readonly] {
 #update-bar button { border: none; background: #1a1a1a; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; }
 @media (max-width: 600px) { #seg-sub button { font-size: 11px; padding: 7px 0; } }
 .fillrow { padding: 2px; }
+.layer-foot.backup { display: flex; gap: 8px; padding-top: 6px; }
+.layer-foot.backup .chip-btn { flex: 1; }

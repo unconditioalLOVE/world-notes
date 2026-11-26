@@ -2216,6 +2216,27 @@
       save(); closeMemo(); renderNotes();
       showToast('メモを削除しました');
     };
+    $('btn-export').onclick = () => {
+      save();
+      const blob = new Blob([localStorage.getItem(KEY) || '{}'], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'world-notes-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    };
+    $('btn-import').onclick = () => $('file-import').click();
+    $('file-import').onchange = async e => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      try {
+        const d = JSON.parse(await f.text());
+        if (!d || typeof d !== 'object' || !Array.isArray(d.layers)) throw new Error('bad');
+        if (!confirm('現在のデータをバックアップの内容に置き換えますか？')) return;
+        localStorage.setItem(KEY, JSON.stringify(d));
+        location.reload();
+      } catch { showToast('バックアップファイルを読み込めませんでした'); }
+    };
     $('btn-update').onclick = () => { save(); location.reload(); };
 
     rebuildPatternChips();
