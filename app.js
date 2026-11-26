@@ -2134,8 +2134,8 @@
 
   /* ---- 長押しドラッグ：並び替え / フォルダ格納 ---- */
   let ld = null;
-  const HOLD_MS = 750;
-  const MOVE_CANCEL = 8;
+  const HOLD_MS = 600;
+  const MOVE_CANCEL = 10;
 
   function clearDropUi() {
     document.querySelectorAll('.layer-item.drop-target').forEach(el => el.classList.remove('drop-target'));
@@ -2147,6 +2147,10 @@
     clearTimeout(ld.expandT);
     clearTimeout(ld.holdT);
     clearDropUi();
+    if (ld._blockTouch) {
+      document.removeEventListener('touchmove', ld._blockTouch, { passive: false });
+      ld._blockTouch = null;
+    }
     if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
     const list = $('layer-list');
     if (list) {
@@ -2154,6 +2158,7 @@
       list.style.touchAction = '';
     }
     document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
     document.querySelectorAll('.layer-item.dragging').forEach(x => x.classList.remove('dragging'));
     ld = null;
   }
@@ -2272,6 +2277,8 @@
     };
     ld.holdT = setTimeout(() => {
       if (!ld || ld.pid !== pid) return;
+      // 長押し中にすでに動いていたらスクロールとみなして中止
+      if (ld._scrolled) { endLayerDrag(); return; }
       ld.ready = true;
       const list = $('layer-list');
       if (list) {
@@ -2281,23 +2288,28 @@
       document.body.style.userSelect = 'none';
       document.body.style.webkitUserSelect = 'none';
       try { if (window.getSelection) window.getSelection().removeAllRanges(); } catch (err) {}
+      // スクロールを止める
+      ld._blockTouch = (ev) => { if (ld && ld.ready) ev.preventDefault(); };
+      document.addEventListener('touchmove', ld._blockTouch, { passive: false });
       item.classList.add('dragging');
       const g = item.cloneNode(true);
       g.classList.add('layer-ghost');
       g.style.width = item.offsetWidth + 'px';
       document.body.appendChild(g);
       ld.ghost = g;
-      ld.ghost.style.left = e.clientX + 'px';
-      ld.ghost.style.top = e.clientY + 'px';
+      ld.ghost.style.left = (ld._lx || e.clientX) + 'px';
+      ld.ghost.style.top = (ld._ly || e.clientY) + 'px';
       try { item.setPointerCapture(pid); } catch (err) {}
     }, HOLD_MS);
   }, { passive: true });
 
   $('layer-list').addEventListener('pointermove', e => {
     if (!ld || e.pointerId !== ld.pid) return;
+    ld._lx = e.clientX; ld._ly = e.clientY;
     const dx = e.clientX - ld.x0, dy = e.clientY - ld.y0;
     if (!ld.ready) {
       if (Math.hypot(dx, dy) > MOVE_CANCEL) {
+        ld._scrolled = true;
         clearTimeout(ld.holdT);
         endLayerDrag();
       }
@@ -2556,15 +2568,32 @@
   function syncDock() {
     const dock = $('dock');
     if (!dock) return;
-    const h = dock.offsetHeight;
-    document.documentElement.style.setProperty('--dock-h', Math.ceil(h) + 'px');
+    const barDraw = $('bar-draw');
+    const toolbar = $('toolbar');
+    const barEdit = $('bar-edit');
+    // タブ部分の高さ（落書きバーは別扱い）
+    let tabs = 0;
+    if (toolbar) tabs += toolbar.getBoundingClientRect().height;
+    if (barEdit && !barEdit.classList.contains('hidden')) tabs += barEdit.getBoundingClientRect().height;
+    // dock の padding 分
+    const cs = getComputedStyle(dock);
+    tabs += (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    if (tabs < 70) tabs = 70;
+    document.documentElement.style.setProperty('--tabs-h', Math.ceil(tabs) + 'px');
+
+    // 地図余白用：全体ドック高さ
+    let full = dock.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--dock-h', Math.ceil(full) + 'px');
+
     const lp = $('layer-panel');
     const open = lp && !lp.classList.contains('hidden') && state.panel === 'layer';
     if (open) {
-      // 高さ確定後に計測
       requestAnimationFrame(() => {
-        const lh = lp.offsetHeight || 0;
+        const lh = lp.getBoundingClientRect().height || 0;
         document.documentElement.style.setProperty('--layer-h', Math.ceil(lh) + 'px');
+        // 落書きバーが fixed のとき、dock 全体高さにバーを含めないよう再計算
+        let base = tabs;
+        document.documentElement.style.setProperty('--dock-h', Math.ceil(base + lh) + 'px');
       });
     } else {
       document.documentElement.style.setProperty('--layer-h', '0px');

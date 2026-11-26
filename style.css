@@ -490,28 +490,36 @@ input[readonly], textarea[readonly] {
   .panel {
     width: 100%;
     height: auto;
-    max-height: calc(100% - var(--dock-h) - 8px);
+    max-height: calc(100% - var(--tabs-h, 90px) - 8px);
     min-height: 160px;
     top: auto;
-    bottom: var(--dock-h);
+    bottom: var(--tabs-h, 90px);
     border-radius: 18px 18px 0 0;
   }
   #app.panel-open #dock { right: 0; }
 
-  /* レイヤーを最下段、落書きメニューをその上に（上下入れ替え） */
+  /*
+   * 下から順に:
+   * 1) ピン/国メモ/メモ/落書き などのタブ（dock下部）
+   * 2) レイヤーパネル
+   * 3) 落書きツール（ペン等）
+   */
   #layer-panel {
     height: auto;
-    max-height: min(40vh, 360px);
-    bottom: 0 !important;
+    max-height: min(38vh, 340px);
+    bottom: var(--tabs-h, 90px) !important;
     z-index: 28;
   }
-  #app.panel-open #dock {
-    bottom: var(--layer-h, 0px) !important;
-    z-index: 29;
-    transition: bottom 0.15s ease;
-  }
-  #app:not(.panel-open) #dock {
-    bottom: 0 !important;
+
+  /* 落書きバーをレイヤーの上に浮かせる */
+  #app.edit.panel-open #bar-draw:not(.hidden) {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(var(--tabs-h, 90px) + var(--layer-h, 0px) + 6px) !important;
+    z-index: 30;
+    margin: 0 !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
   }
 
   textarea { min-height: 110px; }
@@ -522,7 +530,7 @@ input[readonly], textarea[readonly] {
   .seg button { padding: 7px 9px; font-size: 12px; }
 }
 @media (max-width: 600px) {
-  #layer-panel { max-height: min(36vh, 320px); }
+  #layer-panel { max-height: min(34vh, 300px); }
 }
 
 
@@ -647,7 +655,7 @@ input[readonly], textarea[readonly] {
 .pchip.compact.solid { flex: 0 0 34px; width: 34px; }
 .chips.compact .pchip svg, .pchip.compact svg { width: 100%; height: auto; aspect-ratio: 1; }
 .chips.compact .pchip span { display: none; }
-.country.has-memo { fill: #d3e0d9; }
+.country.has-memo { fill: #eef1ef; }
 
 /* ---------- v8 ---------- */
 .lake { fill: var(--ocean); stroke: #b4c1cd; stroke-width: 0.6; vector-effect: non-scaling-stroke; }
