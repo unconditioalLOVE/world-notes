@@ -2134,8 +2134,8 @@
 
   /* ---- 長押しドラッグ：並び替え / フォルダ格納（iPadはtouch優先） ---- */
   let ld = null;
-  const HOLD_MS = 450;
-  const MOVE_CANCEL = 36;
+  const HOLD_MS = 400;
+  const MOVE_CANCEL = 40;
 
   function clearDropUi() {
     document.querySelectorAll('.layer-item.drop-target').forEach(el => el.classList.remove('drop-target'));
@@ -2146,6 +2146,8 @@
     if (!ld) return;
     clearTimeout(ld.expandT);
     clearTimeout(ld.holdT);
+    clearTimeout(ld.claimT);
+    ld._claiming = false;
     clearDropUi();
     if (ld._blockTouch) {
       document.removeEventListener('touchmove', ld._blockTouch, { passive: false });
@@ -2348,8 +2350,19 @@
       id: item.dataset.id, kind: item.dataset.kind,
       x0: x, y0: y, _lx: x, _ly: y,
       moved: false, ready: false, _scrolled: false,
-      ghost: null, drop: null, item, via: 'touch'
+      ghost: null, drop: null, item, via: 'touch',
+      _touchGuard: Date.now() + 1200
     };
+    // 早めにスクロール以外のOSジェスチャを抑えめにする準備
+    // 200ms 時点でほぼ静止なら、以降の touchmove で preventDefault 可能にする（OS長押しキャンセル対策）
+    ld.claimT = setTimeout(() => {
+      if (!ld || ld._scrolled || ld.ready) return;
+      if (!ld._blockTouch) {
+        ld._blockTouch = (ev) => { if (ld && (ld.ready || ld._claiming)) ev.preventDefault(); };
+        ld._claiming = true;
+        document.addEventListener('touchmove', ld._blockTouch, { passive: false });
+      }
+    }, 200);
     ld.holdT = setTimeout(() => {
       if (!ld || ld._scrolled) { endLayerDrag(); return; }
       activateDrag(ld._lx, ld._ly);
@@ -2379,8 +2392,15 @@
     finishDrag(x, y);
   }, { passive: true, capture: true });
 
-  document.addEventListener('touchcancel', () => {
-    if (ld && ld.via === 'touch') endLayerDrag();
+  document.addEventListener('touchcancel', e => {
+    if (!ld || ld.via !== 'touch') return;
+    // 長押し確定後ならドロップ処理、前なら中止
+    if (ld.ready) {
+      const [x, y] = [ld._lx, ld._ly];
+      finishDrag(x, y);
+    } else {
+      endLayerDrag();
+    }
   }, { passive: true, capture: true });
 
   // iOS 長押しメニュー抑制
@@ -2388,9 +2408,11 @@
     if (e.target.closest && e.target.closest('#layer-list')) e.preventDefault();
   });
 
-  // --- Mouse（PC） ---
+  // --- Mouse（PC）※iPadのタッチ後の偽マウスイベントは無視 ---
   document.addEventListener('mousedown', e => {
     if (!state.edit || state.panel !== 'layer' || e.button !== 0) return;
+    if (ld && ld.via === 'touch') return; // タッチ長押し中に来ると壊れる
+    if (ld && ld._touchGuard && Date.now() < ld._touchGuard) return;
     const item = canDragFromTarget(e.target);
     if (!item) return;
     endLayerDrag();
