@@ -596,17 +596,33 @@
 
   /* ---------- ケッペン気候区分（固定レイヤー） ---------- */
   // 参照図に近い配色（教科書的な簡略色）
-  const CLIMATE_COLORS = {
-    Af: '#e53935', Am: '#ef9a9a', As: '#f8bbd0', Aw: '#f5c6c6',
-    BWh: '#b8956a', BWk: '#c4a574', BSh: '#f0d84a', BSk: '#f5e06a',
-    Csa: '#f5a623', Csb: '#f0a020', Csc: '#e89510',
-    Cwa: '#5ebdbd', Cwb: '#7ec8c8', Cwc: '#6bb8b8',
-    Cfa: '#a8e6a1', Cfb: '#4caf50', Cfc: '#43a047',
-    Dfa: '#c5a3d9', Dfb: '#b39ddb', Dfc: '#a089c9', Dfd: '#9575cd',
-    Dsa: '#8e6bb0', Dsb: '#7b5ea7', Dsc: '#6a4c93', Dsd: '#5e4a8a',
-    Dwa: '#7b5ea7', Dwb: '#6a4c93', Dwc: '#5e4a8a', Dwd: '#4a3a70',
+  // 参照図の凡例13色に揃える（細分コードは親区分色へ）
+  const CLIMATE_SIMPLE = {
+    Af: '#e53935', Am: '#ef9a9a', Aw: '#f5c6c6',
+    BW: '#c4a574', BS: '#f0d84a',
+    Cs: '#f5a623', Cw: '#7ec8c8', Cfa: '#a8e6a1', Cfb: '#4caf50',
+    Df: '#c5a3d9', Dw: '#7b5ea7',
     ET: '#7dd3e8', EF: '#3d8fd1'
   };
+  function climateColor(code) {
+    const c = String(code || '');
+    if (CLIMATE_SIMPLE[c]) return CLIMATE_SIMPLE[c];
+    if (c.startsWith('Af')) return CLIMATE_SIMPLE.Af;
+    if (c.startsWith('Am')) return CLIMATE_SIMPLE.Am;
+    if (c.startsWith('As') || c.startsWith('Aw')) return CLIMATE_SIMPLE.Aw;
+    if (c.startsWith('BW') || c === 'BWh' || c === 'BWk') return CLIMATE_SIMPLE.BW;
+    if (c.startsWith('BS') || c === 'BSh' || c === 'BSk') return CLIMATE_SIMPLE.BS;
+    if (c.startsWith('Cs')) return CLIMATE_SIMPLE.Cs;
+    if (c.startsWith('Cw')) return CLIMATE_SIMPLE.Cw;
+    if (c === 'Cfa') return CLIMATE_SIMPLE.Cfa;
+    if (c.startsWith('Cf')) return CLIMATE_SIMPLE.Cfb;
+    if (c.startsWith('Df') || c.startsWith('Ds')) return CLIMATE_SIMPLE.Df; // Ds→亜寒帯系はDf色
+    if (c.startsWith('Dw')) return CLIMATE_SIMPLE.Dw;
+    if (c === 'ET') return CLIMATE_SIMPLE.ET;
+    if (c === 'EF') return CLIMATE_SIMPLE.EF;
+    return '#cccccc';
+  }
+  const CLIMATE_COLORS = CLIMATE_SIMPLE; // 後方互換
   // レイヤー説明用（参照図と同じ区分）
   const CLIMATE_LEGEND = [
     { g: '熱帯', items: [['Af','#e53935'],['Am','#ef9a9a'],['Aw','#f5c6c6']] },
@@ -639,7 +655,7 @@
         const code = (f.properties && (f.properties.CODE || f.properties.code || f.properties.GRIDCODE)) || '';
         const d = pathGen(f) || '';
         if (!d || !code) return null;
-        return { code: String(code), _d: d, color: CLIMATE_COLORS[code] || '#cccccc' };
+        return { code: String(code), _d: d, color: climateColor(code) };
       }).filter(Boolean);
     }
   }
@@ -705,6 +721,11 @@
     svgPins.selectAll('*').remove();
     svgPins.append('g').attr('class', 'notes');
     svgPins.append('g').attr('class', 'pins');
+  }
+
+  function updateClimateLegend() {
+    const el = $('climate-legend');
+    if (el) el.classList.toggle('hidden', !state.showClimate);
   }
 
   function applyGuides() {
@@ -2096,6 +2117,7 @@
         } else if (sid === 'climate') {
           state.showClimate = !state.showClimate;
           svgBase.select('.climate').classed('off', !state.showClimate);
+          updateClimateLegend();
         } else {
           state.guides[sid] = !state.guides[sid];
           applyGuides();
@@ -3281,6 +3303,7 @@
     renderNotes();
     applyTf();
     $('loading').classList.add('hidden');
+    updateClimateLegend();
     initSync();
     setTimeout(checkUpdate, 4000);
     setInterval(checkUpdate, 5 * 60 * 1000);
