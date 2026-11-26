@@ -699,3 +699,29 @@ input[readonly], textarea[readonly] {
   border-radius: 12px; background: #fff;
 }
 .layer-foot.edit-only { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.layer-item.folder.active {
+  border-color: #111;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.14);
+  background: #f0f0f0;
+}
+.layer-item.in-selected-folder {
+  background: #f7f7f7;
+}
+.layer-item.folder .fold-toggle {
+  width: 28px; height: 28px; border: none; border-radius: 8px;
+  background: #e8e8e8; color: #333; font-size: 9px; cursor: pointer; flex-shrink: 0;
+  margin-right: 2px;
+}
+.layer-insert-line {
+  position: absolute;
+  left: 10px; right: 10px;
+  height: 3px;
+  background: #111;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+.layer-insert-line.hidden { display: none; }
+#layer-list { position: relative; }
+.layer-item.dragging { opacity: 0.35; }
