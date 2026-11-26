@@ -757,3 +757,19 @@ input[readonly], textarea[readonly] {
   -webkit-user-select: text !important;
   user-select: text !important;
 }
+
+#layer-list.is-dragging {
+  overflow-y: hidden !important;
+  touch-action: none !important;
+}
+.layer-ghost {
+  position: fixed !important;
+  z-index: 10000 !important;
+  pointer-events: none !important;
+  transform: translate(-30px, -20px) scale(0.97);
+  opacity: 0.92;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.2);
+  border-radius: 12px;
+  background: #fff !important;
+  margin: 0 !important;
+}

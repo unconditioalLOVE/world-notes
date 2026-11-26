@@ -2132,10 +2132,10 @@
     if (layer) { layer.name = e.target.value.trim() || '無題'; e.target.value = layer.name; save(); }
   });
 
-  /* ---- 長押しドラッグ：並び替え / フォルダ格納 ---- */
+  /* ---- 長押しドラッグ：並び替え / フォルダ格納（iPadはtouch優先） ---- */
   let ld = null;
-  const HOLD_MS = 600;
-  const MOVE_CANCEL = 10;
+  const HOLD_MS = 450;
+  const MOVE_CANCEL = 36;
 
   function clearDropUi() {
     document.querySelectorAll('.layer-item.drop-target').forEach(el => el.classList.remove('drop-target'));
@@ -2154,15 +2154,14 @@
     if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
     const list = $('layer-list');
     if (list) {
+      list.classList.remove('is-dragging');
       list.style.overflowY = '';
-      list.style.touchAction = '';
     }
     document.body.style.userSelect = '';
     document.body.style.webkitUserSelect = '';
     document.querySelectorAll('.layer-item.dragging').forEach(x => x.classList.remove('dragging'));
     ld = null;
   }
-
   function showInsertLine(list, y) {
     const line = $('layer-insert-line');
     if (!line || !list) return;
@@ -2170,8 +2169,6 @@
     line.classList.remove('hidden');
     line.style.top = (y - lr.top + list.scrollTop) + 'px';
   }
-
-  // ドロップ位置を解析：{ mode:'before'|'after'|'into', targetId, targetKind, folderId? }
   function resolveDrop(clientX, clientY, dragId, dragKind) {
     const list = $('layer-list');
     if (!list) return null;
@@ -2186,7 +2183,6 @@
     const mid = rect.top + rect.height / 2;
     const kind = hit.dataset.kind;
     const id = hit.dataset.id;
-    // フォルダ本体：中央帯は「中に入れる」、上下は前後
     if (kind === 'folder') {
       const band = rect.height * 0.28;
       if (clientY > rect.top + band && clientY < rect.bottom - band) {
@@ -2195,17 +2191,15 @@
       return { mode: clientY < mid ? 'before' : 'after', targetId: id, targetKind: 'folder' };
     }
     if (kind === 'layer') {
-      const folderId = hit.dataset.folderId || null;
       return {
         mode: clientY < mid ? 'before' : 'after',
         targetId: id,
         targetKind: 'layer',
-        folderId
+        folderId: hit.dataset.folderId || null
       };
     }
     return null;
   }
-
   function applyDrop(dragId, dragKind, drop) {
     if (!drop) return false;
     if (dragKind === 'layer') {
@@ -2216,13 +2210,9 @@
         syncLayersZOrder();
         return true;
       }
-      // before/after
       if (drop.targetKind === 'layer' && drop.folderId) {
-        // フォルダ内の並び
         layer.folderId = drop.folderId;
         state.order = state.order.filter(o => !(o.t === 'layer' && o.id === dragId));
-        const sibs = layersInFolder(drop.folderId).filter(l => l.id !== dragId);
-        const tIdx = sibs.findIndex(l => l.id === drop.targetId);
         const arr = state.layers.filter(l => l.id !== dragId);
         const targetLayer = state.layers.find(l => l.id === drop.targetId);
         const pos = arr.indexOf(targetLayer);
@@ -2231,26 +2221,22 @@
         state.layers = arr;
         return true;
       }
-      // トップレベル
       layer.folderId = null;
       state.order = state.order.filter(o => !(o.t === 'layer' && o.id === dragId));
-      let ti = -1;
-      if (drop.targetKind === 'folder') ti = orderIndex(drop.targetId, 'folder');
-      else ti = orderIndex(drop.targetId, 'layer');
+      let ti = drop.targetKind === 'folder'
+        ? state.order.findIndex(o => o.t === 'folder' && o.id === drop.targetId)
+        : state.order.findIndex(o => o.t === 'layer' && o.id === drop.targetId);
       if (ti < 0) state.order.push({ t: 'layer', id: dragId });
       else state.order.splice(drop.mode === 'before' ? ti : ti + 1, 0, { t: 'layer', id: dragId });
       syncLayersZOrder();
       return true;
     }
     if (dragKind === 'folder') {
-      if (drop.mode === 'into') return false; // フォルダをフォルダに入れない
+      if (drop.mode === 'into') return false;
       state.order = state.order.filter(o => !(o.t === 'folder' && o.id === dragId));
-      let ti = -1;
-      if (drop.targetKind === 'folder') ti = orderIndex(drop.targetId, 'folder');
-      else ti = orderIndex(drop.targetId, 'layer');
-      // target may have been removed from order if it was the same - recompute
-      if (drop.targetKind === 'folder') ti = state.order.findIndex(o => o.t === 'folder' && o.id === drop.targetId);
-      else ti = state.order.findIndex(o => o.t === 'layer' && o.id === drop.targetId);
+      let ti = drop.targetKind === 'folder'
+        ? state.order.findIndex(o => o.t === 'folder' && o.id === drop.targetId)
+        : state.order.findIndex(o => o.t === 'layer' && o.id === drop.targetId);
       if (ti < 0) state.order.push({ t: 'folder', id: dragId });
       else state.order.splice(drop.mode === 'before' ? ti : ti + 1, 0, { t: 'folder', id: dragId });
       syncLayersZOrder();
@@ -2259,71 +2245,44 @@
     return false;
   }
 
-  $('layer-list').addEventListener('pointerdown', e => {
-    if (!state.edit) return;
-    const item = e.target.closest('.layer-item');
-    if (!item || item.dataset.sys) return;
-    if (e.target.closest('button') || e.target.classList.contains('lname')) return;
-    const kind = item.dataset.kind;
-    if (kind !== 'layer' && kind !== 'folder') return;
-    const id = item.dataset.id;
-    const pid = e.pointerId;
-    ld = {
-      id, kind, pid,
-      x0: e.clientX, y0: e.clientY,
-      moved: false, ready: false,
-      ghost: null, drop: null,
-      expandT: null, item
-    };
-    ld.holdT = setTimeout(() => {
-      if (!ld || ld.pid !== pid) return;
-      // 長押し中にすでに動いていたらスクロールとみなして中止
-      if (ld._scrolled) { endLayerDrag(); return; }
-      ld.ready = true;
-      const list = $('layer-list');
-      if (list) {
-        list.style.overflowY = 'hidden';
-        list.style.touchAction = 'none';
-      }
-      document.body.style.userSelect = 'none';
-      document.body.style.webkitUserSelect = 'none';
-      try { if (window.getSelection) window.getSelection().removeAllRanges(); } catch (err) {}
-      // スクロールを止める
-      ld._blockTouch = (ev) => { if (ld && ld.ready) ev.preventDefault(); };
-      document.addEventListener('touchmove', ld._blockTouch, { passive: false });
-      item.classList.add('dragging');
-      const g = item.cloneNode(true);
-      g.classList.add('layer-ghost');
-      g.style.width = item.offsetWidth + 'px';
-      document.body.appendChild(g);
-      ld.ghost = g;
-      ld.ghost.style.left = (ld._lx || e.clientX) + 'px';
-      ld.ghost.style.top = (ld._ly || e.clientY) + 'px';
-      try { item.setPointerCapture(pid); } catch (err) {}
-    }, HOLD_MS);
-  }, { passive: true });
+  function xyFromEvent(e) {
+    if (e.touches && e.touches[0]) return [e.touches[0].clientX, e.touches[0].clientY];
+    if (e.changedTouches && e.changedTouches[0]) return [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
+    return [e.clientX, e.clientY];
+  }
 
-  $('layer-list').addEventListener('pointermove', e => {
-    if (!ld || e.pointerId !== ld.pid) return;
-    ld._lx = e.clientX; ld._ly = e.clientY;
-    const dx = e.clientX - ld.x0, dy = e.clientY - ld.y0;
-    if (!ld.ready) {
-      if (Math.hypot(dx, dy) > MOVE_CANCEL) {
-        ld._scrolled = true;
-        clearTimeout(ld.holdT);
-        endLayerDrag();
-      }
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
+  function activateDrag(x, y) {
+    if (!ld || ld.ready) return;
+    ld.ready = true;
+    const list = $('layer-list');
+    if (list) list.classList.add('is-dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+    try { if (window.getSelection) window.getSelection().removeAllRanges(); } catch (err) {}
+    // iOS: スクロールを止める
+    ld._blockTouch = (ev) => { ev.preventDefault(); };
+    document.addEventListener('touchmove', ld._blockTouch, { passive: false });
+    if (ld.item) ld.item.classList.add('dragging');
+    const g = ld.item.cloneNode(true);
+    g.classList.add('layer-ghost');
+    g.style.width = ld.item.offsetWidth + 'px';
+    document.body.appendChild(g);
+    ld.ghost = g;
+    ld.ghost.style.left = x + 'px';
+    ld.ghost.style.top = y + 'px';
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+  }
+
+  function moveDrag(x, y) {
+    if (!ld || !ld.ready) return;
     ld.moved = true;
+    ld._lx = x; ld._ly = y;
     if (ld.ghost) {
-      ld.ghost.style.left = e.clientX + 'px';
-      ld.ghost.style.top = e.clientY + 'px';
+      ld.ghost.style.left = x + 'px';
+      ld.ghost.style.top = y + 'px';
     }
     clearDropUi();
-    const drop = resolveDrop(e.clientX, e.clientY, ld.id, ld.kind);
+    const drop = resolveDrop(x, y, ld.id, ld.kind);
     ld.drop = drop;
     if (!drop) return;
     const list = $('layer-list');
@@ -2337,38 +2296,133 @@
           ld.expandT = setTimeout(() => {
             const f = folderById(drop.targetId);
             if (f && !f.open) { f.open = true; renderLayers(); }
-          }, 450);
+          }, 400);
         }
       }
     } else {
       const hit = list && list.querySelector(`.layer-item[data-kind="${drop.targetKind}"][data-id="${drop.targetId}"]`);
       if (hit) {
         const rect = hit.getBoundingClientRect();
-        const y = drop.mode === 'before' ? rect.top : rect.bottom;
-        showInsertLine(list, y);
+        showInsertLine(list, drop.mode === 'before' ? rect.top : rect.bottom);
       }
     }
-  }, { passive: false });
+  }
 
-  function finishLayerDrag(e) {
-    if (!ld || e.pointerId !== ld.pid) return;
+  function finishDrag(x, y) {
+    if (!ld) return;
     clearTimeout(ld.holdT);
     const wasDrag = ld.ready && ld.moved;
     const dragId = ld.id, dragKind = ld.kind;
     let drop = ld.drop;
-    if (wasDrag && !drop) drop = resolveDrop(e.clientX, e.clientY, dragId, dragKind);
+    if (wasDrag && !drop) drop = resolveDrop(x, y, dragId, dragKind);
     endLayerDrag();
-    if (!wasDrag) return; // タップ扱いは click に任せる
+    if (!wasDrag) return;
     if (applyDrop(dragId, dragKind, drop)) {
-      save();
-      renderLayers();
-      renderFills();
-      redraw();
-      renderNotes();
+      save(); renderLayers(); renderFills(); redraw(); renderNotes();
     }
   }
-  $('layer-list').addEventListener('pointerup', finishLayerDrag);
-  $('layer-list').addEventListener('pointercancel', finishLayerDrag);
+
+  function canDragFromTarget(t) {
+    if (!t || !state.edit) return null;
+    if (t.closest('button') && !t.closest('[data-act="drag"]')) return null;
+    if (t.classList && t.classList.contains('lname')) return null;
+    if (t.closest('input')) return null;
+    const item = t.closest('.layer-item');
+    if (!item || item.dataset.sys) return null;
+    const kind = item.dataset.kind;
+    if (kind !== 'layer' && kind !== 'folder') return null;
+    return item;
+  }
+
+  const listEl = () => $('layer-list');
+
+  // --- Touch（iPad本体） ---
+  document.addEventListener('touchstart', e => {
+    if (!state.edit || state.panel !== 'layer') return;
+    if (e.touches.length !== 1) return;
+    const item = canDragFromTarget(e.target);
+    if (!item) return;
+    const [x, y] = xyFromEvent(e);
+    endLayerDrag();
+    ld = {
+      id: item.dataset.id, kind: item.dataset.kind,
+      x0: x, y0: y, _lx: x, _ly: y,
+      moved: false, ready: false, _scrolled: false,
+      ghost: null, drop: null, item, via: 'touch'
+    };
+    ld.holdT = setTimeout(() => {
+      if (!ld || ld._scrolled) { endLayerDrag(); return; }
+      activateDrag(ld._lx, ld._ly);
+    }, HOLD_MS);
+  }, { passive: true, capture: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!ld || ld.via !== 'touch') return;
+    const [x, y] = xyFromEvent(e);
+    ld._lx = x; ld._ly = y;
+    const dist = Math.hypot(x - ld.x0, y - ld.y0);
+    if (!ld.ready) {
+      if (dist > MOVE_CANCEL) {
+        ld._scrolled = true;
+        clearTimeout(ld.holdT);
+        endLayerDrag();
+      }
+      return;
+    }
+    // ready 後は preventDefault は _blockTouch が担当
+    moveDrag(x, y);
+  }, { passive: true, capture: true });
+
+  document.addEventListener('touchend', e => {
+    if (!ld || ld.via !== 'touch') return;
+    const [x, y] = xyFromEvent(e);
+    finishDrag(x, y);
+  }, { passive: true, capture: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (ld && ld.via === 'touch') endLayerDrag();
+  }, { passive: true, capture: true });
+
+  // iOS 長押しメニュー抑制
+  document.addEventListener('contextmenu', e => {
+    if (e.target.closest && e.target.closest('#layer-list')) e.preventDefault();
+  });
+
+  // --- Mouse（PC） ---
+  document.addEventListener('mousedown', e => {
+    if (!state.edit || state.panel !== 'layer' || e.button !== 0) return;
+    const item = canDragFromTarget(e.target);
+    if (!item) return;
+    endLayerDrag();
+    ld = {
+      id: item.dataset.id, kind: item.dataset.kind,
+      x0: e.clientX, y0: e.clientY, _lx: e.clientX, _ly: e.clientY,
+      moved: false, ready: false, _scrolled: false,
+      ghost: null, drop: null, item, via: 'mouse'
+    };
+    ld.holdT = setTimeout(() => {
+      if (!ld || ld._scrolled) { endLayerDrag(); return; }
+      activateDrag(ld._lx, ld._ly);
+    }, HOLD_MS);
+  });
+  document.addEventListener('mousemove', e => {
+    if (!ld || ld.via !== 'mouse') return;
+    ld._lx = e.clientX; ld._ly = e.clientY;
+    if (!ld.ready) {
+      if (Math.hypot(e.clientX - ld.x0, e.clientY - ld.y0) > MOVE_CANCEL) {
+        ld._scrolled = true;
+        clearTimeout(ld.holdT);
+        endLayerDrag();
+      }
+      return;
+    }
+    e.preventDefault();
+    moveDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener('mouseup', e => {
+    if (!ld || ld.via !== 'mouse') return;
+    finishDrag(e.clientX, e.clientY);
+  });
 
   /* =========================================================
    * UI
