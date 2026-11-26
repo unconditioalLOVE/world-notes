@@ -442,12 +442,12 @@
   function size() {
     const r = container.getBoundingClientRect();
     sw = r.width; sh = r.height;
-    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
     [cBelow, cAbove, cTop, offA, offB].forEach(c => {
       c.width = Math.round(sw * dpr);
       c.height = Math.round(sh * dpr);
     });
-    [xBelow, xAbove, xTop, offA2, offB2].forEach(c => { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; });
+    [xBelow, xAbove, xTop, offA2, offB2].forEach(c => { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'medium'; });
     d3.selectAll('#svg-base, #svg-lines, #svg-guides, #svg-pins').attr('width', sw).attr('height', sh);
   }
 
@@ -499,6 +499,7 @@
 
   function applyTf() {
     clampTf();
+    clipCache = null;
     const { x, y, k } = state.transform;
     const t = `translate(${x},${y}) scale(${k})`;
     svgBase.select('.world').attr('transform', t);
@@ -711,9 +712,12 @@
     const sel = root.selectAll('g.pin').data(state.pins, d => d.id);
     sel.exit().remove();
     const all = sel.enter().append('g').merge(sel);
-    all.attr('class', d => `pin kind-${d.kind}`);
+    all.attr('class', d => `pin kind-${d.kind || 'normal'}`);
     all.each(function (d) {
       const g = d3.select(this);
+      const sig = (d.kind || 'normal') + '|' + (d.title || '') + '|' + (d.id === state.selectedPinId ? '1' : '0');
+      if (this._sig === sig) return; // 内容が同じならDOMを作り直さない
+      this._sig = sig;
       g.html(pinShape(d.kind));
       if (d.id === state.selectedPinId) g.append('circle').attr('class', 'sel').attr('r', 11);
       if (d.title) g.append('text').attr('class', 'lbl').attr('x', 11).attr('y', 4).text(d.title);
@@ -837,9 +841,26 @@
     return p;
   }
 
+  function strokeBBox(m, pad) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < m.length; i++) {
+      const p = m[i];
+      if (p[0] < x0) x0 = p[0];
+      if (p[1] < y0) y0 = p[1];
+      if (p[0] > x1) x1 = p[0];
+      if (p[1] > y1) y1 = p[1];
+    }
+    return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+  }
   function drawStroke(c, s) {
     const m = mpts(s);
     if (m.length < 2) return;
+    // 画面外の線は描かない（見た目は同じ）
+    const pad = (s.width || 1) * 0.5 + 2;
+    let bb = s._bb;
+    if (!bb) { bb = strokeBBox(m, pad); s._bb = bb; }
+    const v = viewportMap();
+    if (bb[2] < v.x0 || bb[0] > v.x1 || bb[3] < v.y0 || bb[1] > v.y1) return;
     c.lineWidth = s.width;                     // 地図基準の太さ（拡大すると線も一緒に太くなり、隙間が空かない）
     c.lineCap = 'round';
     c.lineJoin = 'round';
@@ -934,7 +955,6 @@
   }
 
   function redraw() {
-    clipCache = null;
     [xBelow, xAbove, xTop].forEach(c => {
       c.setTransform(1, 0, 0, 1, 0, 0);
       c.clearRect(0, 0, cBelow.width, cBelow.height);
@@ -1080,20 +1100,40 @@
     return true;
   }
 
+  let strokeRaf = 0;
   function moveStroke(sx, sy) {
     if (!cur) return;
     const p = toMap(sx, sy), l = cur.m[cur.m.length - 1];
     if (Math.hypot(p[0] - l[0], p[1] - l[1]) * state.transform.k < 1.2) return;
     cur.m.push(p);
-    redraw();
+    if (strokeRaf) return;
+    strokeRaf = requestAnimationFrame(() => { strokeRaf = 0; if (cur) redraw(); });
   }
 
+  // 見た目を変えず点を間引く（幅の一定割合以下の揺れは落とす）
+  function simplifyMapPts(pts, width) {
+    if (pts.length <= 2) return pts;
+    const eps = Math.max(width * 0.12, 0.15);
+    const eps2 = eps * eps;
+    const keep = [pts[0]];
+    let ax = pts[0][0], ay = pts[0][1];
+    for (let i = 1; i < pts.length - 1; i++) {
+      const dx = pts[i][0] - ax, dy = pts[i][1] - ay;
+      if (dx * dx + dy * dy >= eps2) {
+        keep.push(pts[i]);
+        ax = pts[i][0]; ay = pts[i][1];
+      }
+    }
+    keep.push(pts[pts.length - 1]);
+    return keep;
+  }
   function finishStroke() {
     const s = cur; cur = null;
     const layer = activeLayer();
     if (!s || !layer) { redraw(); return; }
     let m = s.m;
     if (m.length === 1) m = [m[0], [m[0][0] + 0.0005, m[0][1]]];
+    m = simplifyMapPts(m, s.width || 1);
     const stroke = {
       type: s.type, color: s.color, width: +s.width.toFixed(4), above: s.above, land: s.land,
       pts: m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
@@ -2497,6 +2537,47 @@
     $('update-bar').classList.remove('hidden');
   }
 
+
+  /* =========================================================
+   * 地図データキャッシュ（見た目同じ・2回目以降を高速化）
+   * ======================================================= */
+  function idbOpenGeo() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('world-notes-geo-v12', 1);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore('geo'); } catch (e) {} };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGetGeo(key) {
+    try {
+      const db = await idbOpenGeo();
+      return await new Promise((resolve, reject) => {
+        const r = db.transaction('geo', 'readonly').objectStore('geo').get(key);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => reject(r.error);
+      });
+    } catch { return null; }
+  }
+  async function idbSetGeo(key, val) {
+    try {
+      const db = await idbOpenGeo();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('geo', 'readwrite');
+        tx.objectStore('geo').put(val, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch { /* ignore */ }
+  }
+  async function loadGeoCached(url, cacheKey) {
+    const hit = await idbGetGeo(cacheKey);
+    if (hit) return hit;
+    const data = await d3.json(url);
+    idbSetGeo(cacheKey, data);
+    return data;
+  }
+
   /* =========================================================
    * 起動
    * ======================================================= */
@@ -2508,9 +2589,9 @@
     try {
       const base = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
       const [countries, rivers, lakes] = await Promise.all([
-        d3.json(base + 'ne_50m_admin_0_countries.geojson'),
-        d3.json(base + 'ne_50m_rivers_lake_centerlines.geojson'),
-        d3.json(base + 'ne_50m_lakes.geojson').catch(() => null)      // 五大湖など（失敗しても地図は表示）
+        loadGeoCached(base + 'ne_50m_admin_0_countries.geojson', 'ne50-countries-v1'),
+        loadGeoCached(base + 'ne_50m_rivers_lake_centerlines.geojson', 'ne50-rivers-v1'),
+        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes-v1').catch(() => null)
       ]);
       prepareData(countries, rivers, lakes);
     } catch (err) {
