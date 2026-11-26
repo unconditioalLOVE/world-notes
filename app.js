@@ -2339,9 +2339,9 @@
   function renderSyncPanel() {
     const T = {
       unconfigured: '未設定です。firebase-config.js に Firebase の設定値を入れると使えます。',
-      signedout: 'ログインすると、端末をまたいで自動で同期されます（変更はほぼリアルタイムで反映）。',
+      signedout: 'ログイン後、「同期」を押したときだけクラウドとやり取りします。',
       syncing: '同期中…', ok: '同期済み ' + sync.extra,
-      offline: 'オフラインです（つながると自動で同期します）', error: '同期エラー：' + sync.extra
+      offline: 'オフラインです（オンラインにしてから「同期」を押してください）', error: '同期エラー：' + sync.extra
     };
     $('sync-status').textContent = T[sync.status] || '';
     $('sync-login').classList.toggle('hidden', !!sync.user || sync.status === 'unconfigured');
@@ -2353,21 +2353,26 @@
   }
 
   async function syncNow(toast) {
-    if (!sync.on) { if (toast) showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
+    if (!sync.user) { if (toast) showToast('先にログインしてください'); return; }
+    if (!sync.on || !sync.ref) { if (toast) showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
     try {
+      // ボタン押下時点の「最後に保存された内容」を確定してから同期する
+      save();
       const snap = await sync.ref.doc('head').get();
-      if (lsGet('wn-sync-dirty', '0') === '1' || !snap.exists) await push();
-      else if (snap.data().rev > sync.rev) await pullFrom(snap.data());
-      else setSyncStatus('ok', hhmm());
+      if (!snap.exists || lsGet('wn-sync-dirty', '0') === '1') {
+        await push();
+      } else if (snap.data().rev > sync.rev) {
+        await pullFrom(snap.data());
+      } else {
+        setSyncStatus('ok', hhmm());
+      }
       if (toast && sync.status === 'ok') showToast('同期しました');
     } catch (e) { setSyncStatus('error', e.message); if (toast) showToast('同期エラー：' + e.message); }
   }
 
-  function markDirty() { sync.ver++; lsSet('wn-sync-dirty', '1'); scheduleUpload(2000); }
+  function markDirty() { sync.ver++; lsSet('wn-sync-dirty', '1'); /* 自動送信しない。同期ボタンでのみ送る */ }
   function scheduleUpload(ms) {
-    if (!sync.on) return;
-    clearTimeout(sync.timer);
-    sync.timer = setTimeout(() => { sync.timer = null; if (sync.busy) scheduleUpload(1500); else push(); }, ms);
+    /* リアルタイム／自動同期はしない。同期ボタンのみ */
   }
 
   const hasLocalData = () => state.pins.length || Object.keys(state.countries).length ||
@@ -2398,8 +2403,7 @@
     } catch (e) {
       setSyncStatus(navigator.onLine === false ? 'offline' : 'error', (e && e.message) || '');
     } finally { sync.busy = false; }
-    if (ok && sync.ver !== v) scheduleUpload(1500);
-    else if (!ok && sync.on) scheduleUpload(15000);      // 失敗時は後で再試行
+    /* 自動再送なし。失敗時はユーザーが同期ボタンを押す */
   }
 
   const remoteBlocked = () => !!cur || !!lasso || !!state.textSel || ptrs.size > 0 || (g && g.type !== 'none') ||
@@ -2431,36 +2435,18 @@
 
   async function startSync(user) {
     sync.user = user;
-    sync.ref = sync.db.collection('users').doc(user.uid).collection('wn');
-    sync.rev = +lsGet('wn-sync-rev', 0) || 0;
-    if (lsGet('wn-sync-user', '') !== user.uid) { sync.rev = 0; lsSet('wn-sync-rev', 0); lsSet('wn-sync-dirty', '0'); lsSet('wn-sync-user', user.uid); }
-    setSyncStatus('syncing');
-    try {
-      const snap = await sync.ref.doc('head').get();
-      sync.on = true;
-      if (!snap.exists) await push();
-      else {
-        const h = snap.data();
-        sync.lastN = h.n || 0;
-        if (lsGet('wn-sync-dirty', '0') === '1') await push();
-        else if (h.rev > sync.rev) {
-          if (sync.rev === 0 && hasLocalData()) {
-            if (confirm('クラウドにデータがあります。\nOK：クラウドのデータをこの端末に読み込む（この端末の内容は置き換わります）\nキャンセル：この端末の内容でクラウドを上書き')) await pullFrom(h);
-            else await push();
-          } else await pullFrom(h);
-        } else setSyncStatus('ok', hhmm());
-      }
-      if (sync.unsub) sync.unsub();
-      sync.unsub = sync.ref.doc('head').onSnapshot(s => {
-        if (!s.exists || (s.metadata && s.metadata.hasPendingWrites)) return;
-        const h = s.data();
-        if (h.by === DEVICE || h.rev <= sync.rev) return;
-        if (sync.timer || sync.busy || lsGet('wn-sync-dirty', '0') === '1') return;    // 自分の未送信の変更を優先
-        pullFrom(h).catch(e => setSyncStatus('error', e.message));
-      }, e => setSyncStatus(navigator.onLine === false ? 'offline' : 'error', e.message));
-    } catch (e) {
-      setSyncStatus(navigator.onLine === false ? 'offline' : 'error', (e && e.message) || '');
+    sync.ref = sync.db.collection('users').doc(user.uid).collection('data');
+    sync.rev = +lsGet('wn-sync-rev', '0') || 0;
+    if (lsGet('wn-sync-user', '') !== user.uid) {
+      sync.rev = 0;
+      lsSet('wn-sync-rev', 0);
+      lsSet('wn-sync-dirty', '0');
+      lsSet('wn-sync-user', user.uid);
     }
+    // ログイン時は自動同期しない。リアルタイム監視もしない。「同期」ボタンのみ
+    if (sync.unsub) { sync.unsub(); sync.unsub = null; }
+    sync.on = true;
+    setSyncStatus('ok', 'ログイン済み・手動同期');
   }
 
   function stopSync() {
@@ -2487,7 +2473,7 @@
       sync.auth = firebase.auth();
       sync.db = firebase.firestore();
       sync.auth.onAuthStateChanged(u => { if (u) startSync(u); else stopSync(); });
-      window.addEventListener('online', () => { if (sync.on && lsGet('wn-sync-dirty', '0') === '1') scheduleUpload(500); });
+      window.addEventListener('online', () => { /* 自動同期なし */ });
       window.addEventListener('offline', () => { if (sync.on) setSyncStatus('offline'); });
     } catch (e) { setSyncStatus('error', e.message); }
   }
