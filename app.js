@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-26-v11';
+  const BUILD = '2026-11-26-v12';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -2258,6 +2258,14 @@
     $('btn-sync-signup').onclick = () => authAct('signup');
     $('btn-sync-out').onclick = () => { if (sync.auth && confirm('ログアウトしますか？（この端末のデータは残ります）')) sync.auth.signOut(); };
     $('btn-sync-now').onclick = () => syncNow(false);
+    $('btn-sync-force').onclick = async () => {
+      if (!sync.on) { showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
+      if (!confirm('この端末の内容でクラウドを上書きします。他の端末の内容は置き換わります。よろしいですか？')) return;
+      save();
+      sync.ver++; lsSet('wn-sync-dirty', '1');
+      await push();
+      showToast(sync.status === 'ok' ? 'クラウドを上書きしました。他の端末は開き直すと反映されます' : '送信に失敗しました（パネルの表示を確認してください）');
+    };
     $('btn-update').onclick = () => { save(); location.reload(); };
 
     rebuildPatternChips();
