@@ -344,7 +344,7 @@
     clearTimeout(saveTimer);
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides
+        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers
       }));
       if (sync.on) markDirty();
     } catch {
@@ -434,6 +434,7 @@
       state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
     state.activeLayerId = state.layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : state.layers[0].id;
+    if (typeof d.showRivers === 'boolean') state.showRivers = d.showRivers;
   }
 
   /* =========================================================
@@ -1096,6 +1097,7 @@
       land: !eraser && state.landOnly,
       m: [toMap(sx, sy)]
     };
+    if (eraser) eraseLassoAt(sx, sy);
     redraw();
     return true;
   }
@@ -1297,7 +1299,7 @@
     perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: f._key, keys: [f._key], ...spec }));
   }
 
-  // 触れた場所にある塗りをすべて消す（なぞって消せる）
+  // 触れた場所の「国の塗り」を消す（塗り消しツール用）
   function eraseFillAt(sx, sy, quiet) {
     const layer = drawable();
     if (!layer) return false;
@@ -1305,7 +1307,7 @@
     const ll = projection.invert([mx, my]);
     if (!ll) return false;
     const hit = layer.fills.filter(f => {
-      if (f.kind === 'lasso' && !d3.polygonContains(mpts(f), [mx, my])) return false;
+      if (f.kind === 'lasso') return false; // 投げ縄は通常消しゴムで消す
       return f.keys.some(k => {
         const ft = byKey.get(k);
         if (!ft) return false;
@@ -1316,6 +1318,16 @@
     });
     if (hit.length) { perform(A.removeFills(layer, hit)); return true; }
     if (!quiet) showToast('消せる塗りがありません');
+    return false;
+  }
+
+  // 投げ縄塗りを通常消しゴムでなぞって消す
+  function eraseLassoAt(sx, sy) {
+    const layer = drawable();
+    if (!layer) return false;
+    const [mx, my] = toMap(sx, sy);
+    const hit = layer.fills.filter(f => f.kind === 'lasso' && Array.isArray(f.pts) && f.pts.length >= 3 && d3.polygonContains(mpts(f), [mx, my]));
+    if (hit.length) { perform(A.removeFills(layer, hit)); return true; }
     return false;
   }
 
@@ -1405,9 +1417,17 @@
   function selectText(sel) {
     state.textSel = sel;
     $('te-input').value = sel.t.text;
+    // スライダーをこの文字の大きさに合わせる（1〜100表示）
+    {
+      const r = SIZE.text, s = Math.max(r.min, sel.t.size || r.min);
+      const t = 100 * Math.log(s / r.min) / Math.log(r.max / r.min);
+      state.sizeT.text = clamp(Math.round(t), 0, 100);
+      if ($('size-slider')) $('size-slider').value = state.sizeT.text;
+    }
     $('text-editor').classList.remove('hidden');
     positionEditor();
     redraw();
+    updateSizePreview();
     try { $('te-input').focus({ preventScroll: true }); } catch { $('te-input').focus(); }
   }
 
@@ -1588,7 +1608,12 @@
       requestRender();
     } else if (g.type === 'stroke') {
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-      (evs.length ? evs : [e]).forEach(ev => { const q = pos(ev); moveStroke(q[0], q[1]); });
+      (evs.length ? evs : [e]).forEach(ev => {
+        const q = pos(ev);
+        moveStroke(q[0], q[1]);
+        // 通常消しゴムは投げ縄塗りもなぞって消す
+        if (cur && cur.type === 'eraser') eraseLassoAt(q[0], q[1]);
+      });
     } else if (g.type === 'lasso') {
       moveLasso(p[0], p[1]);
     } else if (g.type === 'serase') {
@@ -1817,20 +1842,24 @@
   const SYS_LAYERS = [
     { id: 'equator', name: '赤道' },
     { id: 'tropics', name: '南回帰線と北回帰線' },
-    { id: 'pins', name: 'ピン' }
+    { id: 'pins', name: 'ピン' },
+    { id: 'rivers', name: '河川' }
   ];
 
   function renderLayers() {
     const list = $('layer-list');
     list.innerHTML = '';
     SYS_LAYERS.forEach(sl => {
-      const on = state.guides[sl.id];
+      const on = sl.id === 'rivers' ? state.showRivers : state.guides[sl.id];
       const div = document.createElement('div');
       div.className = 'layer-item sys' + (on ? '' : ' off');
       div.dataset.sys = sl.id;
+      let meta = '固定レイヤー ・ 常に最上位（削除不可）';
+      if (sl.id === 'pins') meta = `ピン <b>${state.pins.length}</b> 件 ・ 固定レイヤー（削除不可）`;
+      if (sl.id === 'rivers') meta = '固定レイヤー（削除不可）';
       div.innerHTML = `
         <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示にする' : '表示する'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
-        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">${sl.id === 'pins' ? `ピン <b>${state.pins.length}</b> 件 ・ 固定レイヤー（削除不可）` : '固定レイヤー ・ 常に最上位（削除不可）'}</div></div>`;
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">${meta}</div></div>`;
       list.appendChild(div);
     });
     const sep = document.createElement('div');
@@ -1847,7 +1876,7 @@
         <button class="eye ${layer.visible ? '' : 'off'}" data-act="eye" title="${layer.visible ? '非表示にする' : '表示する'}" aria-label="表示切替">${layer.visible ? ICON.eye : ICON.eyeOff}</button>
         <div class="lbody">
           <input type="text" class="lname" value="${esc(layer.name)}" maxlength="40" ${state.edit ? '' : 'readonly'} />
-          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
+          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.filter(f => f.kind === 'country').length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
         </div>
         <div class="lactions edit-only">
           <button data-act="up" title="上へ" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
@@ -1863,9 +1892,16 @@
     if (!item) return;
     if (item.dataset.sys) {
       if (e.target.closest('button')) {
-        state.guides[item.dataset.sys] = !state.guides[item.dataset.sys];
-        applyGuides(); save(); renderLayers();
-        if (item.dataset.sys === 'pins' && !state.guides.pins && state.panel === 'pin') closeMemo();
+        const sid = item.dataset.sys;
+        if (sid === 'rivers') {
+          state.showRivers = !state.showRivers;
+          svgLines.select('.rivers').classed('off', !state.showRivers);
+        } else {
+          state.guides[sid] = !state.guides[sid];
+          applyGuides();
+          if (sid === 'pins' && !state.guides.pins && state.panel === 'pin') closeMemo();
+        }
+        save(); renderLayers();
       }
       return;
     }
@@ -2005,7 +2041,9 @@
     if (!['pen', 'eraser', 'text'].includes(state.sub)) return;
     const key = sizeKey(), v = sizeVal(key), px = v * state.transform.k;
     const box = $('size-prev');
-    $('size-px').textContent = '≈ ' + (px < 10 ? px.toFixed(1) : Math.round(px)) + 'px';
+    // 表示は最小1〜最大100（内部サイズとは別の目盛り）
+    const n = Math.max(1, Math.min(100, Math.round(+state.sizeT[key] || 1)));
+    $('size-px').textContent = String(n);
     if (key === 'pen') {
       const d = clamp(px, 1.5, 42);
       box.innerHTML = `<i style="width:${d}px;height:${d}px;background:${state.sub === 'eraser' ? '#aaa' : state.color}"></i>`;
@@ -2023,8 +2061,8 @@
     switch (state.sub) {
       case 'pen': return `ペン（国境の${state.side === 'above' ? '上' : '下'}${state.landOnly ? '・国上のみ' : ''}）— 1本指で描く／2本指で移動・拡大`;
       case 'eraser': return {
-        normal: '消しゴム — なぞって消す（このレイヤーの線のみ）', stroke: '線消し — 消したい線をなぞる',
-        fill: '塗り消し — なぞった所の塗りが消えます', pin: 'ピン消し — なぞったピンが消えます', stamp: 'スタンプ消し — なぞって消す'
+        normal: '消しゴム — 線と投げ縄塗りをなぞって消す', stroke: '線消し — 消したい線をなぞる',
+        fill: '塗り消し — 国の塗りをなぞって消す', pin: 'ピン消し — なぞったピンが消えます', stamp: 'スタンプ消し — なぞって消す'
       }[state.eraser];
       case 'country-fill': return `国塗り — 国をタップして塗る（国境の${state.fillSide === 'above' ? '上' : '下'}・重ね塗りOK）`;
       case 'lasso': return lassoMsg('投げ縄') + `（国境の${state.fillSide === 'above' ? '上' : '下'}）`;
@@ -2057,7 +2095,6 @@
     $('btn-landonly').classList.toggle('on', state.landOnly);
     $('view-pin').classList.toggle('active', state.viewTarget === 'pin');
     $('view-country').classList.toggle('active', state.viewTarget === 'country');
-    $('btn-rivers').classList.toggle('active', state.showRivers);
 
     const s = state.sub, agri = stampDef().cat === 'agri';
     const show = (id, v) => $(id).classList.toggle('hidden', !v);
@@ -2189,7 +2226,17 @@
       perform(A.setCountryFill(layer, key, nf));
       rebuildPatternChips();
     };
-    $('size-slider').oninput = e => { state.sizeT[sizeKey()] = +e.target.value; updateSizePreview(); };
+    $('size-slider').oninput = e => {
+      state.sizeT[sizeKey()] = +e.target.value;
+      // テキスト入力中・選択中もサイズ変更を即反映
+      if (state.textSel && sizeKey() === 'text') {
+        state.textSel.t.size = sizeVal('text');
+        positionEditor();
+        redraw();
+        saveSoon();
+      }
+      updateSizePreview();
+    };
 
     $('btn-undo').onclick = undo;
     $('btn-redo').onclick = redo;
@@ -2204,11 +2251,7 @@
       save(); renderLayers();
     };
 
-    $('btn-rivers').onclick = () => {
-      state.showRivers = !state.showRivers;
-      svgLines.select('.rivers').classed('off', !state.showRivers);
-      updateUI();
-    };
+    /* rivers toggle: layer panel fixed layers */
     $('btn-reset-view').onclick = () => { fitView(); applyTf(); };
 
     $('btn-close-pin').onclick = () => closeMemo();
@@ -2387,7 +2430,7 @@
     let ok = false;
     try {
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
-      const str = JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides })
+      const str = JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers })
         .replace(/[\u007f-￿]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
       const n = Math.max(1, Math.ceil(str.length / SYNC_CH));
       const rev = Math.max(Date.now(), sync.rev + 1);
@@ -2423,7 +2466,7 @@
       if (['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
       state.undo.length = 0; state.redo.length = 0;
       applyData(d);
-      lsSet(KEY, JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides }));
+      lsSet(KEY, JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers }));
       sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
       if (dataReady) {
         applyGuides(); renderFills(); renderMemoMarks(); renderPins(); renderNotes(); redraw(); updateUI();
