@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-27-v14';
+  const BUILD = '2026-11-27-v15';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -2055,6 +2055,9 @@
     const id = item.dataset.id;
     const btn = e.target.closest('button');
     const act = btn && btn.dataset.act;
+
+    // 名前の入力欄をタップした時は再描画しない（再描画すると入力欄が作り直されて、キーボードが開かず名前を変更できない）
+    if (state.edit && e.target.classList && e.target.classList.contains('lname')) return;
 
     if (kind === 'folder') {
       const folder = folderById(id);

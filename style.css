@@ -844,3 +844,11 @@ input[readonly], textarea[readonly] {
   #layer-list .layer-item.sys .lname-static { font-size: 12.5px; line-height: 1.25; }
   #layer-list .layer-sep { display: block; clear: both; padding-top: 4px; }
 }
+
+/* 編集中はレイヤー名・フォルダ名の入力欄に必ず入力できるように（iOSは user-select:none だと入力できない） */
+#app.edit .layer-item input.lname {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+  pointer-events: auto;
+}
