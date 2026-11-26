@@ -261,6 +261,8 @@
     selectedNoteId: null,
     pins: [],
     layers: [],              // layers[0] が最上位
+    folders: [],             // [{id,name,open}]
+    order: [],               // top-level [{t:'layer'|'folder', id}]
     countries: {},
     guides: { equator: true, tropics: true, pins: true },
     activeLayerId: null,
@@ -607,13 +609,14 @@
     bw.append('g').attr('class', 'land')
       .selectAll('path').data(feats).join('path')
       .attr('class', 'country').attr('d', d => d._d);
-    bw.append('g').attr('class', 'fills');
     bw.append('g').attr('class', 'lakes')
       .selectAll('path').data(lakeFeats).join('path')
       .attr('class', 'lake').attr('d', d => d._d);
 
     svgLines.selectAll('*').remove();
     const ldefs = svgLines.append('defs');
+    ldefs.append('g').attr('id', 'pats');
+    ldefs.append('g').attr('id', 'clips');
     ldefs.append('g').attr('id', 'pats-a');
     ldefs.append('g').attr('id', 'clips-a');
     const mk = ldefs.append('mask').attr('id', 'nolake').attr('maskUnits', 'userSpaceOnUse')
@@ -621,12 +624,14 @@
     mk.append('rect').attr('x', -50).attr('y', -50).attr('width', W + 100).attr('height', W + 100).attr('fill', '#fff');
     mk.append('g').attr('fill', '#000').selectAll('path').data(lakeFeats).join('path').attr('d', d => d._d);
     const lw = svgLines.append('g').attr('class', 'world');
-    lw.append('g').attr('class', 'borders')
-      .selectAll('path').data(feats).join('path')
-      .attr('class', 'border').attr('d', d => d._d);
+    // 川 → 国境下の塗り → 国境 → 国境上の塗り（塗りが川の下にならない）
     lw.append('g').attr('class', 'rivers' + (state.showRivers ? '' : ' off'))
       .selectAll('path').data(riverFeats).join('path')
       .attr('class', 'river').attr('d', d => d._d);
+    lw.append('g').attr('class', 'fills');
+    lw.append('g').attr('class', 'borders')
+      .selectAll('path').data(feats).join('path')
+      .attr('class', 'border').attr('d', d => d._d);
     lw.append('g').attr('class', 'fills-above').attr('mask', 'url(#nolake)');
     lw.append('path').attr('class', 'hl hidden');
     const sg = projection([0, -76]);
@@ -663,7 +668,7 @@
   const patId = (pid, color) => `pat-${pid}-${String(color).replace('#', '')}`;
 
   const fillCtx = () => ({
-    below: { g: svgBase.select('.fills'), pats: svgBase.select('#pats'), clips: svgBase.select('#clips'), pre: 'b' },
+    below: { g: svgLines.select('.fills'), pats: svgLines.select('#pats'), clips: svgLines.select('#clips'), pre: 'b' },
     above: { g: svgLines.select('.fills-above'), pats: svgLines.select('#pats-a'), clips: svgLines.select('#clips-a'), pre: 'a' }
   });
 
@@ -1829,6 +1834,7 @@
     $('app').classList.toggle('panel-open', !!name);
     $('btn-layers').classList.toggle('active', name === 'layer');
     if (name === 'layer') renderLayers();
+    syncDock();
   }
 
   // ピン・国・メモのパネルを閉じる。編集中に名称のないピン／空のメモは自動で削除
@@ -2121,8 +2127,16 @@
   function endLayerDrag() {
     if (!ld) return;
     clearTimeout(ld.expandT);
+    clearTimeout(ld.holdT);
     clearDropHl();
     if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
+    const list = $('layer-list');
+    if (list) {
+      list.style.overflowY = '';
+      list.style.touchAction = '';
+    }
+    document.body.style.userSelect = '';
+    document.querySelectorAll('.layer-item.dragging').forEach(x => x.classList.remove('dragging'));
     ld = null;
   }
   $('layer-list').addEventListener('pointerdown', e => {
@@ -2141,11 +2155,19 @@
       ready: false,
       ghost: null,
       targetFolder: null,
-      expandT: null
+      expandT: null,
+      item
     };
     ld.holdT = setTimeout(() => {
       if (!ld || ld.pid !== pid) return;
       ld.ready = true;
+      // スクロールを止める
+      const list = $('layer-list');
+      if (list) {
+        list.style.overflowY = 'hidden';
+        list.style.touchAction = 'none';
+      }
+      document.body.style.userSelect = 'none';
       item.classList.add('dragging');
       const g = item.cloneNode(true);
       g.classList.add('layer-ghost');
@@ -2155,8 +2177,8 @@
       ld.ghost.style.left = e.clientX + 'px';
       ld.ghost.style.top = e.clientY + 'px';
       try { item.setPointerCapture(pid); } catch (err) {}
-    }, 420);
-  });
+    }, 380);
+  }, { passive: true });
   $('layer-list').addEventListener('pointermove', e => {
     if (!ld || e.pointerId !== ld.pid) return;
     const dx = e.clientX - ld.x0, dy = e.clientY - ld.y0;
@@ -2164,13 +2186,18 @@
       if (Math.hypot(dx, dy) > 10) { clearTimeout(ld.holdT); endLayerDrag(); }
       return;
     }
+    e.preventDefault();
+    e.stopPropagation();
     ld.moved = true;
     if (ld.ghost) {
       ld.ghost.style.left = e.clientX + 'px';
       ld.ghost.style.top = e.clientY + 'px';
     }
     clearDropHl();
+    // ghost を一時的に隠して下の要素を検出
+    if (ld.ghost) ld.ghost.style.display = 'none';
     const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (ld.ghost) ld.ghost.style.display = '';
     const hit = el && el.closest && el.closest('.layer-item');
     if (hit && hit.dataset.kind === 'folder' && hit.dataset.id) {
       hit.classList.add('drop-target');
@@ -2180,10 +2207,9 @@
         ld.expandT = setTimeout(() => {
           const f = folderById(ld.targetFolder);
           if (f && !f.open) { f.open = true; renderLayers(); }
-        }, 480);
+        }, 450);
       }
     } else if (hit && hit.dataset.kind === 'layer' && !hit.classList.contains('in-folder')) {
-      // トップレベルへ戻す候補
       hit.classList.add('drop-target');
       ld.targetFolder = null;
       clearTimeout(ld.expandT);
@@ -2191,7 +2217,7 @@
       ld.targetFolder = null;
       clearTimeout(ld.expandT);
     }
-  });
+  }, { passive: false });
   function finishLayerDrag(e) {
     if (!ld || e.pointerId !== ld.pid) return;
     clearTimeout(ld.holdT);
@@ -2538,10 +2564,13 @@
     const addFolderBtn = $('btn-add-folder');
     if (addFolderBtn) addFolderBtn.onclick = () => {
       if (!state.edit) return;
+      if (!Array.isArray(state.folders)) state.folders = [];
+      if (!Array.isArray(state.order)) state.order = [];
       const f = blankFolder('フォルダ');
       state.folders.unshift(f);
       state.order.unshift({ t: 'folder', id: f.id });
       save(); renderLayers();
+      showToast('フォルダを追加しました');
     };
 
     /* rivers toggle: layer panel fixed layers */
