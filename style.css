@@ -802,3 +802,45 @@ input[readonly], textarea[readonly] {
   -webkit-user-select: none; user-select: none;
 }
 .drag-handle:active { cursor: grabbing; background: #ddd; }
+
+/* ---------- v14: スマホのレイヤーパネル／落書きバー調整 ---------- */
+@media (max-width: 1024px) {
+  /* レイヤー一覧を広く。下のボタン類は1行ずつに圧縮 */
+  #layer-panel, #app .panel#layer-panel {
+    height: min(46vh, 400px);
+    max-height: min(46vh, 400px);
+  }
+  #layer-panel #layer-list { min-height: 150px; padding-top: 10px; }
+  #layer-panel .layer-foot { padding: 6px 12px 8px; }
+  #layer-panel .layer-foot.edit-only { flex-wrap: nowrap; gap: 6px; padding-bottom: 0; }
+  #layer-panel .layer-foot .primary-btn { width: auto; flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
+  #layer-panel .layer-foot .chip-btn { padding: 8px 10px; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
+  #layer-panel .layer-foot.backup { flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 10px; }
+  #layer-panel .layer-foot.backup::-webkit-scrollbar { display: none; }
+
+  /* 落書きバー：レイヤーと同時に開いても、画面幅の内側に収める（dock基準の絶対配置） */
+  #app.edit.panel-open #bar-draw:not(.hidden) {
+    position: absolute !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: none !important;
+    box-sizing: border-box;
+    bottom: calc(100% + var(--layer-h, 0px) + 6px) !important;
+    margin: 0 !important;
+  }
+  #app.edit.panel-open #bar-draw .row, #app.edit.panel-open #bar-draw .seg { min-width: 0; max-width: 100%; }
+  #app.edit.panel-open #seg-sub { width: 100%; }
+}
+@media (max-width: 1024px) {
+  /* 固定レイヤー（ピン・赤道・回帰線）は小さく、自分のレイヤーを見やすく */
+  #layer-list .layer-item.sys { padding: 6px 10px; margin-bottom: 6px; }
+  #layer-list .layer-item.sys .eye { width: 30px; height: 30px; }
+  #layer-list .layer-item.sys .lmeta { display: none; }
+}
+@media (max-width: 1024px) {
+  #layer-list .layer-item.sys { display: inline-flex; width: calc(50% - 4px); vertical-align: top; box-sizing: border-box; }
+  #layer-list .layer-item.sys:nth-child(odd) { margin-right: 8px; }
+  #layer-list .layer-item.sys .lname-static { font-size: 12.5px; line-height: 1.25; }
+  #layer-list .layer-sep { display: block; clear: both; padding-top: 4px; }
+}
