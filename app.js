@@ -275,7 +275,8 @@
     k0: 1,
     undo: [],
     redo: [],
-    showRivers: true
+    showRivers: true,
+    showClimate: false
   };
 
   const $ = id => document.getElementById(id);
@@ -379,7 +380,7 @@
     clearTimeout(saveTimer);
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers
+        v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
       }));
       if (sync.on) markDirty();
     } catch {
@@ -471,6 +472,7 @@
     }
     state.activeLayerId = state.layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : state.layers[0].id;
     if (typeof d.showRivers === 'boolean') state.showRivers = d.showRivers;
+    if (typeof d.showClimate === 'boolean') state.showClimate = d.showClimate;
     state.folders = (Array.isArray(d.folders) ? d.folders : []).map(f => ({
       id: f.id || 'FD' + uid(), name: f.name || 'フォルダ', open: f.open !== false, visible: f.visible !== false
     }));
@@ -591,7 +593,31 @@
     return out;
   }
 
-  function prepareData(countries, rivers, lakes) {
+
+  /* ---------- ケッペン気候区分（固定レイヤー） ---------- */
+  // 参照図に近い配色（教科書的な簡略色）
+  const CLIMATE_COLORS = {
+    Af: '#e53935', Am: '#ef9a9a', As: '#f8bbd0', Aw: '#f5c6c6',
+    BWh: '#b8956a', BWk: '#c4a574', BSh: '#f0d84a', BSk: '#f5e06a',
+    Csa: '#f5a623', Csb: '#f0a020', Csc: '#e89510',
+    Cwa: '#5ebdbd', Cwb: '#7ec8c8', Cwc: '#6bb8b8',
+    Cfa: '#a8e6a1', Cfb: '#4caf50', Cfc: '#43a047',
+    Dfa: '#c5a3d9', Dfb: '#b39ddb', Dfc: '#a089c9', Dfd: '#9575cd',
+    Dsa: '#8e6bb0', Dsb: '#7b5ea7', Dsc: '#6a4c93', Dsd: '#5e4a8a',
+    Dwa: '#7b5ea7', Dwb: '#6a4c93', Dwc: '#5e4a8a', Dwd: '#4a3a70',
+    ET: '#7dd3e8', EF: '#3d8fd1'
+  };
+  // レイヤー説明用（参照図と同じ区分）
+  const CLIMATE_LEGEND = [
+    { g: '熱帯', items: [['Af','#e53935'],['Am','#ef9a9a'],['Aw','#f5c6c6']] },
+    { g: '乾燥帯', items: [['BW','#c4a574'],['BS','#f0d84a']] },
+    { g: '温帯', items: [['Cs','#f5a623'],['Cw','#7ec8c8'],['Cfa','#a8e6a1'],['Cfb','#4caf50']] },
+    { g: '亜寒帯', items: [['Df','#c5a3d9'],['Dw','#7b5ea7']] },
+    { g: '寒帯', items: [['ET','#7dd3e8'],['EF','#3d8fd1']] }
+  ];
+  let climateFeats = [];
+
+  function prepareData(countries, rivers, lakes, climate) {
     feats = splitTaiwan(countries.features || []).map(f => {
       const p = f.properties || {};
       f._key = keyOf(p);
@@ -607,6 +633,15 @@
     feats.forEach(f => byKey.set(f._key, f));
     riverFeats = (rivers.features || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
     lakeFeats = ((lakes && lakes.features) || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
+    climateFeats = [];
+    if (climate && climate.features) {
+      climateFeats = climate.features.map(f => {
+        const code = (f.properties && (f.properties.CODE || f.properties.code || f.properties.GRIDCODE)) || '';
+        const d = pathGen(f) || '';
+        if (!d || !code) return null;
+        return { code: String(code), _d: d, color: CLIMATE_COLORS[code] || '#cccccc' };
+      }).filter(Boolean);
+    }
   }
 
   function buildMap() {
@@ -618,6 +653,13 @@
     bw.append('g').attr('class', 'land')
       .selectAll('path').data(feats).join('path')
       .attr('class', 'country').attr('d', d => d._d);
+    // 気候区分（固定レイヤー・地図投影は共通のまま）
+    bw.append('g').attr('class', 'climate' + (state.showClimate ? '' : ' off'))
+      .selectAll('path').data(climateFeats).join('path')
+      .attr('class', 'climate-zone')
+      .attr('d', d => d._d)
+      .attr('fill', d => d.color)
+      .attr('stroke', 'none');
     bw.append('g').attr('class', 'lakes')
       .selectAll('path').data(lakeFeats).join('path')
       .attr('class', 'lake').attr('d', d => d._d);
@@ -1891,7 +1933,8 @@
     { id: 'pins', name: 'ピン' },
     { id: 'equator', name: '赤道' },
     { id: 'tropics', name: '南回帰線と北回帰線' },
-    { id: 'rivers', name: '河川' }
+    { id: 'rivers', name: '河川' },
+    { id: 'climate', name: '気候区分' }
   ];
 
   function renderLayers() {
@@ -1900,15 +1943,24 @@
     list.innerHTML = '';
 
     SYS_LAYERS.forEach(sl => {
-      const on = sl.id === 'rivers' ? state.showRivers : state.guides[sl.id];
+      const on = sl.id === 'rivers' ? state.showRivers
+        : sl.id === 'climate' ? state.showClimate
+        : state.guides[sl.id];
       const div = document.createElement('div');
       div.className = 'layer-item sys' + (on ? '' : ' off');
       div.dataset.sys = sl.id;
       let meta = '';
       if (sl.id === 'pins') meta = `ピン <b>${state.pins.length}</b> 件`;
+      if (sl.id === 'climate') {
+        meta = CLIMATE_LEGEND.map(g =>
+          `<span class="clim-g">${g.g}</span> ` + g.items.map(([c, col]) =>
+            `<span class="clim-chip"><i style="background:${col}"></i>${c}</span>`
+          ).join('')
+        ).join(' ');
+      }
       div.innerHTML = `
         <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示' : '表示'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
-        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div>${meta ? `<div class="lmeta">${meta}</div>` : ''}</div>`;
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div>${meta ? `<div class="lmeta clim-legend">${meta}</div>` : ''}</div>`;
       list.appendChild(div);
     });
 
@@ -2041,6 +2093,9 @@
         if (sid === 'rivers') {
           state.showRivers = !state.showRivers;
           svgLines.select('.rivers').classed('off', !state.showRivers);
+        } else if (sid === 'climate') {
+          state.showClimate = !state.showClimate;
+          svgBase.select('.climate').classed('off', !state.showClimate);
         } else {
           state.guides[sid] = !state.guides[sid];
           applyGuides();
@@ -3017,7 +3072,7 @@
     let ok = false;
     try {
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
-      const str = JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers })
+      const str = JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate })
         .replace(/[\u007f-￿]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
       const n = Math.max(1, Math.ceil(str.length / SYNC_CH));
       const rev = Math.max(Date.now(), sync.rev + 1);
@@ -3053,7 +3108,7 @@
       if (['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
       state.undo.length = 0; state.redo.length = 0;
       applyData(d);
-      lsSet(KEY, JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers }));
+      lsSet(KEY, JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate }));
       sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
       if (dataReady) {
         applyGuides(); renderFills(); renderMemoMarks(); renderPins(); renderNotes(); redraw(); updateUI();
@@ -3204,12 +3259,14 @@
     updateUI();
     try {
       const base = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
-      const [countries, rivers, lakes] = await Promise.all([
+      const climateUrl = 'https://cdn.jsdelivr.net/gh/circleofconfusion/climate-map@master/topojson/1976-2000.geojson';
+      const [countries, rivers, lakes, climate] = await Promise.all([
         loadGeoCached(base + 'ne_50m_admin_0_countries.geojson', 'ne50-countries-v1'),
         loadGeoCached(base + 'ne_50m_rivers_lake_centerlines.geojson', 'ne50-rivers-v1'),
-        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes-v1').catch(() => null)
+        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes-v1').catch(() => null),
+        loadGeoCached(climateUrl, 'koppen-1976-2000-v1').catch(err => { console.warn('climate load failed', err); return null; })
       ]);
-      prepareData(countries, rivers, lakes);
+      prepareData(countries, rivers, lakes, climate);
     } catch (err) {
       console.error(err);
       $('loading').textContent = '地図データの読み込みに失敗しました。通信状況を確認して再読み込みしてください。';

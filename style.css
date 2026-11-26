@@ -852,3 +852,17 @@ input[readonly], textarea[readonly] {
   -webkit-touch-callout: default !important;
   pointer-events: auto;
 }
+
+/* 気候区分 */
+.climate-zone { fill-opacity: 0.82; pointer-events: none; }
+.climate.off { display: none; }
+.clim-legend { line-height: 1.55; max-width: 100%; }
+.clim-g { font-weight: 600; color: #333; margin-right: 2px; }
+.clim-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-right: 6px; font-size: 10px; color: #444;
+}
+.clim-chip i {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 2px; border: 1px solid rgba(0,0,0,0.15);
+}
