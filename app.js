@@ -5,6 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
+  const BUILD = '2026-11-26-v8';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -41,6 +42,8 @@
     text:  { min: 0.1,  max: 60 },
     stamp: { min: 0.3,  max: 60 }
   };
+  // スタンプの大きさは3段階（地図上の大きさ。最小≒ピンより少し大きい / 最大≒スリランカ大）
+  const STAMP_SIZES = { S: 4, M: 7, L: 10 };
 
   /* =========================================================
    * スタンプ定義（24x24 のシルエット。f=主色 f2=副色 k=黒 w=白 s=線 ws=白線）
@@ -99,7 +102,11 @@
     { id: 'cotton', cat: 'agri', name: '綿花', c: '#8ea6b9', c2: '#5b7a4a', shapes: [
       ['f', C(8.2, 10, 4) + C(15.8, 10, 4) + C(12, 6.8, 4.2) + C(12, 12, 4.8)],
       ['f2', 'M6 14.5L9 21.5L12 18.5L15 21.5L18 14.5C15 16.8 9 16.8 6 14.5Z']] },
-    { id: 'cow', cat: 'agri', name: '酪農(牛)', c: '#3a3a3a', c2: '#b9a98a', shapes: [
+    { id: 'dairy', cat: 'agri', name: '酪農', c: '#5f8fb5', c2: '#d9534f', shapes: [
+      ['f', 'M9.5 2.5H14.5V5C14.5 6 16.5 7.5 16.5 10V20.5Q16.5 22 15 22H9Q7.5 22 7.5 20.5V10C7.5 7.5 9.5 6 9.5 5Z'],
+      ['f2', 'M9 1.8H15V3.8H9Z'],
+      ['w', 'M9 12H15V17.5H9Z']] },
+    { id: 'cow', cat: 'agri', name: '牛', c: '#3a3a3a', c2: '#b9a98a', shapes: [
       ['f2', 'M7.5 7C5.5 6 4 4.5 3.5 2.5C6 3 8.5 4.5 9.5 6.5Z'],
       ['f2', 'M16.5 7C18.5 6 20 4.5 20.5 2.5C18 3 15.5 4.5 14.5 6.5Z'],
       ['f', E(4.2, 10.5, 3, 1.6, -20)], ['f', E(19.8, 10.5, 3, 1.6, 20)],
@@ -165,7 +172,26 @@
       ['ws', 'M9 4L12 11L20 10M12 11L11 20M4.5 9.5L12 11', 1]] },
     { id: 'gas', cat: 'min', name: 'ガス田', c: '#2a7f9e', shapes: [
       ['f', 'M12 2C13 7 18 9 18 15A6 6 0 0 1 6 15C6 12 8 10 9 8C10 10 11 10 11.5 9C12 7 12 5 12 2Z'],
-      ['w', 'M12 12C13.5 14 15 15 15 17A3 3 0 0 1 9 17C9 15 11 14 12 12Z']] }
+      ['w', 'M12 12C13.5 14 15 15 15 17A3 3 0 0 1 9 17C9 15 11 14 12 12Z']] },
+    { id: 'gold', cat: 'min', name: '金', c: '#c8a02a', shapes: [
+      ['f', 'M2.5 20L4.5 15H11L12.5 20Z M11.5 20L13 15H19.5L21.5 20Z M7 14L8.7 9H15.3L17 14Z'],
+      ['ws', 'M5.5 17.5H10M14.5 17.5H18.5M10 11.5H14', 1]] },
+    { id: 'copper', cat: 'min', name: '銅', c: '#b8683a', shapes: [
+      ['f', C(12, 12, 9.5)],
+      ['ws', C(12, 12, 6.4), 1],
+      ['w', C(12, 12, 2.6)]] },
+    { id: 'iron', cat: 'min', name: '鉄', c: '#9a4a35', c2: '#6c7580', shapes: [
+      ['f2', 'M11 20L13.5 12.5L19 11L21.5 20Z'],
+      ['f', 'M2.5 20L5.5 11.5L11 9L15.5 12.5L14 20Z'],
+      ['ws', 'M5.5 11.5L9 15L8 20M11 9L9 15M13.5 12.5L17 15.5', 1]] },
+    { id: 'aluminum', cat: 'min', name: 'アルミ', c: '#8d9fb0', c2: '#5a6a79', shapes: [
+      ['f2', 'M8 3H16L17 5.6H7Z'],
+      ['f', 'M7 5H17V20Q17 21.8 15.2 21.8H8.8Q7 21.8 7 20Z'],
+      ['w', 'M8.6 9.6H15.4V15.4H8.6Z'],
+      ['ws', 'M9.6 6.6V19', 1]] },
+    { id: 'rare', cat: 'min', name: 'レアメタル', c: '#6a5fb0', shapes: [
+      ['f', 'M7 4H17L21.5 10L12 21L2.5 10Z'],
+      ['ws', 'M2.5 10H21.5M7 4L9.5 10L12 21L14.5 10L17 4M9.5 10L12 4L14.5 10', 1]] }
   ];
   const STAMP_BY = {};
   STAMPS.forEach(s => { STAMP_BY[s.id] = s; });
@@ -213,22 +239,30 @@
     edit: false,
     tool: 'draw',            // draw | pin | country
     sub: 'pen',              // pen | eraser | country-fill | lasso | text | stamp
-    eraser: 'normal',        // normal | stroke | fill | stamp
+    eraser: 'normal',        // normal | stroke | fill | pin | stamp
     side: 'above',
     landOnly: false,
     viewTarget: 'pin',
     color: '#1a1a1a',
     fillColor: FILL_DEFAULT,
-    pattern: 'diag',
+    pattern: 'diag',         // null = 模様なし（塗りつぶしだけ）
     sizeT: { pen: 66, text: 68, stamp: 70 },
     stamp: 'rice',
     stampCat: 'agri',
     stampMode: 'tap',        // tap | lasso
     lassoKey: null,
+    lassoScope: 'country',   // country | all
+    fillSide: 'below',       // 塗りの位置（国境の上/下）
+    stampSide: 'above',
+    stampSize: 'M',
+    overPin: true,           // 工業・鉱産スタンプをピンの上に重ねる
+    solid: false,
+    solidColor: FILL_DEFAULT,
+    selectedNoteId: null,
     pins: [],
     layers: [],              // layers[0] が最上位
     countries: {},
-    guides: { equator: true, tropics: true },
+    guides: { equator: true, tropics: true, pins: true },
     activeLayerId: null,
     selectedPinId: null,
     selectedCountryKey: null,
@@ -263,6 +297,8 @@
   const byKey = new Map();
   let riverFeats = [];
   let dataReady = false;
+  let lakeFeats = [];
+  let updateReady = null;
   let cur = null;          // 描画中のストローク
   let lasso = null;        // 投げ縄中 {m:[], s:[]}
   let lastPs = 0;
@@ -279,9 +315,11 @@
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const stampDef = () => STAMP_BY[state.stamp] || STAMPS[0];
-  const sizeKey = () => (state.sub === 'text' ? 'text' : state.sub === 'stamp' ? 'stamp' : 'pen');
+  const sizeKey = () => (state.sub === 'text' ? 'text' : 'pen');
+  const stampSizeVal = () => STAMP_SIZES[state.stampSize] || STAMP_SIZES.M;
   const sizeVal = key => { const r = SIZE[key]; return r.min * Math.pow(r.max / r.min, state.sizeT[key] / 100); };
-  const needTarget = () => state.sub === 'lasso' || (state.sub === 'stamp' && stampDef().cat === 'agri' && state.stampMode === 'lasso');
+  const lassoActive = () => state.sub === 'lasso' || (state.sub === 'stamp' && stampDef().cat === 'agri' && state.stampMode === 'lasso');
+  const needTarget = () => lassoActive() && state.lassoScope === 'country';
 
   function showToast(msg) {
     const t = $('toast');
@@ -298,7 +336,7 @@
    * 保存／読み込み
    * ======================================================= */
   function blankLayer(name) {
-    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [], stamps: [], texts: [] };
+    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [], stamps: [], texts: [], notes: [] };
   }
 
   function save() {
@@ -371,13 +409,22 @@
           return o;
         }),
       fills: (Array.isArray(l.fills) ? l.fills : []).filter(f => f && (f.kind === 'country' || (f.kind === 'lasso' && Array.isArray(f.pts))))
-        .map(f => ({ ...f, color: f.color || FILL_DEFAULT })),
+        .map(f => {
+          const keys = Array.isArray(f.keys) && f.keys.length ? f.keys : (f.country ? [f.country] : []);
+          return {
+            ...f, id: f.id || 'F' + uid(), keys, country: f.country || keys[0],
+            pattern: PATTERNS.some(p => p.id === f.pattern) ? f.pattern : null,
+            color: f.color || FILL_DEFAULT, solid: !!f.solid, solidColor: f.solidColor || FILL_DEFAULT, above: !!f.above
+          };
+        }).filter(f => f.keys.length && (f.solid || f.pattern)),
       stamps: (Array.isArray(l.stamps) ? l.stamps : []).filter(s => s && STAMP_BY[s.type] && isFinite(s.lon) && isFinite(s.lat) && s.size > 0),
-      texts: (Array.isArray(l.texts) ? l.texts : []).filter(t => t && typeof t.text === 'string' && t.text.trim() && isFinite(t.lon) && isFinite(t.lat))
+      texts: (Array.isArray(l.texts) ? l.texts : []).filter(t => t && typeof t.text === 'string' && t.text.trim() && isFinite(t.lon) && isFinite(t.lat)),
+      notes: (Array.isArray(l.notes) ? l.notes : []).filter(n => n && typeof n.text === 'string' && n.text.trim() && isFinite(n.lon) && isFinite(n.lat))
+        .map(n => ({ id: n.id || 'N' + uid(), lon: n.lon, lat: n.lat, text: n.text }))
     }));
     state.countries = d.countries && typeof d.countries === 'object' ? d.countries : {};
     if (d.guides && typeof d.guides === 'object') {
-      state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false };
+      state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
     state.activeLayerId = state.layers[0].id;
     if (migrated) save();
@@ -441,6 +488,7 @@
     if (!force && ps === lastPs) return;
     lastPs = ps;
     svgBase.selectAll('pattern').attr('patternTransform', `scale(${ps})`);
+    svgLines.selectAll('pattern').attr('patternTransform', `scale(${ps})`);
   }
 
   function applyTf() {
@@ -452,6 +500,7 @@
     svgGuides.select('.world').attr('transform', t);
     applyPatScale(false);
     positionPins();
+    positionNotes();
     positionEditor();
     redraw();
     if (state.edit && state.tool === 'draw') updateSizePreview();
@@ -490,7 +539,7 @@
     return out;
   }
 
-  function prepareData(countries, rivers) {
+  function prepareData(countries, rivers, lakes) {
     feats = splitTaiwan(countries.features || []).map(f => {
       const p = f.properties || {};
       f._key = keyOf(p);
@@ -505,6 +554,7 @@
     byKey.clear();
     feats.forEach(f => byKey.set(f._key, f));
     riverFeats = (rivers.features || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
+    lakeFeats = ((lakes && lakes.features) || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
   }
 
   function buildMap() {
@@ -517,8 +567,18 @@
       .selectAll('path').data(feats).join('path')
       .attr('class', 'country').attr('d', d => d._d);
     bw.append('g').attr('class', 'fills');
+    bw.append('g').attr('class', 'lakes')
+      .selectAll('path').data(lakeFeats).join('path')
+      .attr('class', 'lake').attr('d', d => d._d);
 
     svgLines.selectAll('*').remove();
+    const ldefs = svgLines.append('defs');
+    ldefs.append('g').attr('id', 'pats-a');
+    ldefs.append('g').attr('id', 'clips-a');
+    const mk = ldefs.append('mask').attr('id', 'nolake').attr('maskUnits', 'userSpaceOnUse')
+      .attr('x', -50).attr('y', -50).attr('width', W + 100).attr('height', W + 100);
+    mk.append('rect').attr('x', -50).attr('y', -50).attr('width', W + 100).attr('height', W + 100).attr('fill', '#fff');
+    mk.append('g').attr('fill', '#000').selectAll('path').data(lakeFeats).join('path').attr('d', d => d._d);
     const lw = svgLines.append('g').attr('class', 'world');
     lw.append('g').attr('class', 'borders')
       .selectAll('path').data(feats).join('path')
@@ -526,6 +586,7 @@
     lw.append('g').attr('class', 'rivers' + (state.showRivers ? '' : ' off'))
       .selectAll('path').data(riverFeats).join('path')
       .attr('class', 'river').attr('d', d => d._d);
+    lw.append('g').attr('class', 'fills-above').attr('mask', 'url(#nolake)');
     lw.append('path').attr('class', 'hl hidden');
     const sg = projection([0, -76]);
     lw.append('text').attr('class', 'signature').attr('x', sg[0]).attr('y', sg[1]).text('developed by unconditionalLOVE');
@@ -545,12 +606,14 @@
     applyGuides();
 
     svgPins.selectAll('*').remove();
+    svgPins.append('g').attr('class', 'notes');
     svgPins.append('g').attr('class', 'pins');
   }
 
   function applyGuides() {
     svgGuides.select('.grp-eq').classed('guide-off', !state.guides.equator);
     svgGuides.select('.grp-tr').classed('guide-off', !state.guides.tropics);
+    svgPins.select('g.pins').classed('guide-off', !state.guides.pins);
   }
 
   /* ---------- 塗り（国境でクリップ） ---------- */
@@ -558,43 +621,68 @@
   const clipId = key => 'clip-' + key.replace(/[^A-Za-z0-9_-]/g, '_');
   const patId = (pid, color) => `pat-${pid}-${String(color).replace('#', '')}`;
 
+  const fillCtx = () => ({
+    below: { g: svgBase.select('.fills'), pats: svgBase.select('#pats'), clips: svgBase.select('#clips'), pre: 'b' },
+    above: { g: svgLines.select('.fills-above'), pats: svgLines.select('#pats-a'), clips: svgLines.select('#clips-a'), pre: 'a' }
+  });
+
   function renderFills() {
     if (!dataReady) return;
-    const g = svgBase.select('.fills');
-    g.selectAll('*').remove();
-    const clips = svgBase.select('#clips'); clips.selectAll('*').remove();
-    const pats = svgBase.select('#pats'); pats.selectAll('*').remove();
-    const usedClip = new Set(), usedPat = new Map();
+    const C2 = fillCtx();
+    [C2.below, C2.above].forEach(c => {
+      c.g.selectAll('*').remove(); c.pats.selectAll('*').remove(); c.clips.selectAll('*').remove();
+      c.usedPat = new Map(); c.clipIds = new Map();
+    });
+    const clipFor = (c, keys) => {
+      const k = keys.slice().sort().join('|');
+      let id = c.clipIds.get(k);
+      if (!id) {
+        id = `clip-${c.pre}${c.clipIds.size}`;
+        c.clipIds.set(k, id);
+        const cp = c.clips.append('clipPath').attr('id', id);
+        keys.forEach(key => { const ft = byKey.get(key); if (ft) cp.append('path').attr('d', ft._d); });
+      }
+      return id;
+    };
 
     for (let i = state.layers.length - 1; i >= 0; i--) {
       const layer = state.layers[i];
       if (!layer.visible) continue;
       layer.fills.forEach(f => {
-        const feat = byKey.get(f.country);
-        if (!feat) return;
-        const color = f.color || FILL_DEFAULT;
-        const id = patId(f.pattern, color);
-        usedPat.set(id, { pid: f.pattern, color });
-        if (f.kind === 'country') {
-          g.append('path').attr('d', feat._d).attr('fill', `url(#${id})`);
-        } else {
-          const m = mpts(f);
-          if (m.length < 3) return;
-          usedClip.add(f.country);
-          g.append('path').attr('d', polyD(m)).attr('fill', `url(#${id})`).attr('clip-path', `url(#${clipId(f.country)})`);
+        if (!f.keys.some(k => byKey.has(k))) return;
+        const c = f.above ? C2.above : C2.below;
+        const add = paint => {
+          if (f.kind === 'country') {
+            const ft = byKey.get(f.keys[0]);
+            if (ft) c.g.append('path').attr('d', ft._d).attr('fill', paint);
+          } else {
+            const m = mpts(f);
+            if (m.length < 3) return;
+            c.g.append('path').attr('d', polyD(m)).attr('fill', paint).attr('clip-path', `url(#${clipFor(c, f.keys)})`);
+          }
+        };
+        if (f.solid) add(f.solidColor || FILL_DEFAULT);
+        if (f.pattern) {
+          const id = c.pre + patId(f.pattern, f.color || FILL_DEFAULT);
+          c.usedPat.set(id, { pid: f.pattern, color: f.color || FILL_DEFAULT });
+          add(`url(#${id})`);
         }
       });
     }
-    usedPat.forEach(({ pid, color }, id) => {
-      const p = PATTERNS.find(x => x.id === pid);
-      if (!p) return;
-      pats.append('pattern').attr('id', id).attr('patternUnits', 'userSpaceOnUse')
-        .attr('width', p.w).attr('height', p.h).style('color', color).html(p.body);
-    });
-    usedClip.forEach(key => {
-      clips.append('clipPath').attr('id', clipId(key)).append('path').attr('d', byKey.get(key)._d);
+    [C2.below, C2.above].forEach(c => {
+      c.usedPat.forEach(({ pid, color }, id) => {
+        const p = PATTERNS.find(x => x.id === pid);
+        if (!p) return;
+        c.pats.append('pattern').attr('id', id).attr('patternUnits', 'userSpaceOnUse')
+          .attr('width', p.w).attr('height', p.h).style('color', color).html(p.body);
+      });
     });
     applyPatScale(true);
+  }
+
+  // メモのある国をほんのり色づけ
+  function renderMemoMarks() {
+    svgBase.selectAll('.country').classed('has-memo', d => !!((state.countries[d._key] || {}).memo || '').trim());
   }
 
   function renderHighlight() {
@@ -639,6 +727,7 @@
   }
 
   function pinAt(sx, sy) {
+    if (!state.guides.pins) return null;
     const { x, y, k } = state.transform;
     let best = null, bd = PIN_HIT;
     state.pins.forEach(p => {
@@ -647,6 +736,47 @@
       if (d < bd) { bd = d; best = p; }
     });
     return best;
+  }
+
+  /* ---------- メモ（落書きレイヤーに属する小さなメモボタン） ---------- */
+  const NOTE_HIT = 15;
+  function visibleNotes() { return state.layers.filter(l => l.visible).flatMap(l => l.notes.map(n => ({ layer: l, n }))); }
+  function renderNotes() {
+    const root = svgPins.select('g.notes');
+    if (root.empty()) return;
+    const sel = root.selectAll('g.note').data(visibleNotes(), d => d.n.id);
+    sel.exit().remove();
+    const en = sel.enter().append('g').attr('class', 'note')
+      .html('<rect class="nb" x="-9" y="-9" width="18" height="18" rx="5"/><path class="nl" d="M-4.5 -3H4.5M-4.5 0.5H4.5M-4.5 4H0.5"/>');
+    en.merge(sel).classed('sel', d => d.n.id === state.selectedNoteId);
+    positionNotes();
+  }
+  function positionNotes() {
+    const root = svgPins.select('g.notes');
+    if (root.empty()) return;
+    const { x, y, k } = state.transform;
+    root.selectAll('g.note').attr('transform', d => {
+      const m = projection([d.n.lon, d.n.lat]);
+      return `translate(${(x + m[0] * k).toFixed(1)},${(y + m[1] * k).toFixed(1)})`;
+    });
+  }
+  function noteAt(sx, sy) {
+    const { x, y, k } = state.transform;
+    let best = null, bd = NOTE_HIT;
+    visibleNotes().forEach(o => {
+      const m = projection([o.n.lon, o.n.lat]);
+      const d = Math.hypot(x + m[0] * k - sx, y + m[1] * k - sy);
+      if (d < bd) { bd = d; best = o; }
+    });
+    return best;
+  }
+  function curNote() {
+    if (!state.selectedNoteId) return null;
+    for (const l of state.layers) {
+      const n = l.notes.find(x => x.id === state.selectedNoteId);
+      if (n) return { layer: l, n };
+    }
+    return null;
   }
 
   function featureAtMap(mx, my) {
@@ -751,19 +881,22 @@
     });
   }
 
-  function drawStamps(c, layer, ind) {
+  const isTopStamp = s => (s.top !== undefined ? !!s.top : STAMP_BY[s.type].cat === 'ind');
+
+  function drawStamps(layer) {
     if (!layer.stamps.length) return;
     const v = viewportMap(), k = state.transform.k;
-    if (ind) c.globalAlpha = 0.62;
     layer.stamps.forEach(s => {
       const st = STAMP_BY[s.type];
-      if (!st || (st.cat === 'ind') !== ind) return;
-      if (s.size * k < 2) return;
+      if (!st || s.size * k < 2) return;
       const m = smap(s), h = s.size / 2;
       if (m[0] + h < v.x0 || m[0] - h > v.x1 || m[1] + h < v.y0 || m[1] - h > v.y1) return;
+      const top = isTopStamp(s);
+      const c = top ? xTop : (s.above === false ? xBelow : xAbove);
+      if (top) c.globalAlpha = 0.62;           // ピンの上に重ねるスタンプは半透明
       c.drawImage(sprite(st), m[0] - h, m[1] - h, s.size, s.size);
+      c.globalAlpha = 1;
     });
-    c.globalAlpha = 1;
   }
 
   function textLines(t) { return String(t.text).split('\n'); }
@@ -805,9 +938,8 @@
       const layer = state.layers[i];
       if (!layer.visible) continue;
       drawLayerStrokes(layer);
-      drawStamps(xAbove, layer, false);
+      drawStamps(layer);
       drawTexts(xAbove, layer);
-      drawStamps(xTop, layer, true);       // 工業スタンプはピンの上に半透明で
     }
     if (lasso && lasso.s.length > 1) {
       xAbove.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -872,11 +1004,22 @@
       redo() { l.stamps = l.stamps.filter(s => !arr.includes(s)); },
       undo() { l.stamps.push(...arr); }
     }),
-    clear: l => {
-      let a, b, c, d;
+    removePins: arr => {
+      let idx = [];
       return {
-        redo() { a = l.strokes; b = l.fills; c = l.stamps; d = l.texts; l.strokes = []; l.fills = []; l.stamps = []; l.texts = []; },
-        undo() { l.strokes = a; l.fills = b; l.stamps = c; l.texts = d; }
+        redo() {
+          idx = arr.map(p => state.pins.indexOf(p));
+          state.pins = state.pins.filter(p => !arr.includes(p));
+          if (arr.some(p => p.id === state.selectedPinId)) state.selectedPinId = null;
+        },
+        undo() { arr.forEach((p, i) => state.pins.splice(clamp(idx[i], 0, state.pins.length), 0, p)); }
+      };
+    },
+    clear: l => {
+      let a, b, c, d, e;
+      return {
+        redo() { a = l.strokes; b = l.fills; c = l.stamps; d = l.texts; e = l.notes; l.strokes = []; l.fills = []; l.stamps = []; l.texts = []; l.notes = []; },
+        undo() { l.strokes = a; l.fills = b; l.stamps = c; l.texts = d; l.notes = e; }
       };
     }
   };
@@ -884,6 +1027,8 @@
   function afterChange() {
     save();
     renderFills();
+    renderPins();
+    renderNotes();
     redraw();
     if (state.panel === 'layer') renderLayers();
     if (state.panel === 'country') renderCountryChips();
@@ -1009,39 +1154,73 @@
     redraw();
   }
 
+  // 囲んだ範囲と重なる国（全国モード）／選んだ国（国モード）
+  function lassoKeys(poly) {
+    if (state.lassoScope === 'country') return state.lassoKey ? [state.lassoKey] : [];
+    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    return feats.filter(f => f._b[1][0] >= x0 && f._b[0][0] <= x1 && f._b[1][1] >= y0 && f._b[0][1] <= y1).map(f => f._key);
+  }
+  // 囲んだ内側に陸地が少しでもあるか（サンプル点で確認）
+  function anyLand(poly) {
+    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), N = 16;
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const x = x0 + (x1 - x0) * i / N, y = y0 + (y1 - y0) * j / N;
+      if (d3.polygonContains(poly, [x, y]) && featureAtMap(x, y)) return true;
+    }
+    return false;
+  }
+
+  function fillSpec() {
+    if (!state.solid && !state.pattern) { showToast('模様か塗りつぶしを選んでください'); return null; }
+    return { pattern: state.pattern || null, color: state.fillColor, solid: state.solid, solidColor: state.solidColor, above: state.fillSide === 'above' };
+  }
+
   function finishLasso() {
     const L = lasso; lasso = null;
     redraw();
     const layer = activeLayer();
     if (!L || !layer) return;
+    const all = state.lassoScope === 'all';
     const xs = L.s.map(p => p[0]), ys = L.s.map(p => p[1]);
     if (L.m.length < 6 || Math.max(...xs) - Math.min(...xs) < 8 || Math.max(...ys) - Math.min(...ys) < 8) {
-      const last = L.s[L.s.length - 1];       // ほぼタップ → 対象の国を選び直す
-      pickTarget(last[0], last[1]);
+      if (all) showToast('もう少し大きく囲んでください');
+      else { const last = L.s[L.s.length - 1]; pickTarget(last[0], last[1]); }   // ほぼタップ → 対象の国を選び直す
       return;
     }
-    const feat = byKey.get(state.lassoKey);
-    if (!feat) { showToast('先に国をタップして選んでください'); return; }
+    let keys;
+    if (all) {
+      keys = lassoKeys(L.m);
+      if (!keys.length || !anyLand(L.m)) { showToast('陸地を含むように囲んでください'); return; }
+    } else {
+      if (!byKey.get(state.lassoKey)) { showToast('先に国をタップして選んでください'); return; }
+      keys = [state.lassoKey];
+    }
 
     if (state.sub === 'lasso') {
+      const spec = fillSpec();
+      if (!spec) return;
       const fill = {
-        id: 'F' + uid(), kind: 'lasso', country: feat._key, pattern: state.pattern, color: state.fillColor,
+        id: 'F' + uid(), kind: 'lasso', country: keys[0], keys, ...spec,
         pts: L.m.map(p => { const ll = projection.invert(p); return [round4(ll[0]), round4(ll[1])]; })
       };
       mcache.set(fill, L.m);
       perform(A.addFill(layer, fill));
     } else {
-      stampFill(layer, feat, L.m);
+      stampFill(layer, keys, L.m);
     }
   }
 
-  // 農牧業スタンプを等間隔・密集（ずらし配置）で敷き詰める。選んだ国の内側だけ
-  function stampFill(layer, feat, poly) {
-    const st = stampDef(), size = sizeVal('stamp');
+  // 農牧業スタンプを等間隔・密集（ずらし配置）で敷き詰める。対象の国の陸地の内側だけ
+  function stampFill(layer, keys, poly) {
+    const st = stampDef(), size = stampSizeVal();
+    const fs = keys.map(k => byKey.get(k)).filter(Boolean);
+    if (!fs.length) return;
     const stepX = size * 1.1, stepY = stepX * 0.87;
     const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
-    const minX = Math.max(Math.min(...xs), feat._b[0][0]), maxX = Math.min(Math.max(...xs), feat._b[1][0]);
-    const minY = Math.max(Math.min(...ys), feat._b[0][1]), maxY = Math.min(Math.max(...ys), feat._b[1][1]);
+    const minX = Math.max(Math.min(...xs), Math.min(...fs.map(f => f._b[0][0]))), maxX = Math.min(Math.max(...xs), Math.max(...fs.map(f => f._b[1][0])));
+    const minY = Math.max(Math.min(...ys), Math.min(...fs.map(f => f._b[0][1]))), maxY = Math.min(Math.max(...ys), Math.max(...fs.map(f => f._b[1][1])));
     if ((maxX - minX) * (maxY - minY) / (stepX * stepY) > 6000) {
       showToast('範囲が広すぎます。拡大して囲むか、スタンプを大きくしてください');
       return;
@@ -1050,55 +1229,84 @@
     for (let row = 0, y = minY; y <= maxY; row++, y += stepY) {
       for (let x = minX + (row % 2 ? stepX / 2 : 0); x <= maxX; x += stepX) {
         if (!d3.polygonContains(poly, [x, y])) continue;
+        const cand = fs.filter(f => x >= f._b[0][0] && x <= f._b[1][0] && y >= f._b[0][1] && y <= f._b[1][1]);
+        if (!cand.length) continue;
         const ll = projection.invert([x, y]);
-        if (!ll || !d3.geoContains(feat, ll)) continue;
-        arr.push({ id: 'S' + uid() + arr.length, type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size });
+        if (!ll || !cand.some(f => d3.geoContains(f, ll))) continue;
+        arr.push({ id: 'S' + uid() + arr.length, type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size, above: state.stampSide === 'above', top: false });
       }
     }
     if (!arr.length) { showToast('範囲が小さすぎます（スタンプが入りません）'); return; }
     perform(A.addStamps(layer, arr));
   }
 
-  /* ---------- 国塗り・塗り消し ---------- */
+  /* ---------- 国塗り・塗り消し・ピン消し ---------- */
   function fillCountryAt(sx, sy) {
     const layer = drawable();
     if (!layer) return;
+    const spec = fillSpec();
+    if (!spec) return;
     const f = featureAtMap(...toMap(sx, sy));
     if (!f) { showToast('国をタップしてください'); return; }
-    perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: f._key, pattern: state.pattern, color: state.fillColor }));
+    perform(A.addFill(layer, { id: 'F' + uid(), kind: 'country', country: f._key, keys: [f._key], ...spec }));
   }
 
-  function eraseFillAt(sx, sy) {
+  // 触れた場所にある塗りをすべて消す（なぞって消せる）
+  function eraseFillAt(sx, sy, quiet) {
     const layer = drawable();
-    if (!layer) return;
+    if (!layer) return false;
     const [mx, my] = toMap(sx, sy);
     const ll = projection.invert([mx, my]);
-    for (let i = layer.fills.length - 1; i >= 0; i--) {
-      const f = layer.fills[i];
-      const feat = byKey.get(f.country);
-      if (!feat) continue;
-      let hit;
-      if (f.kind === 'country') hit = !!ll && d3.geoContains(feat, ll);
-      else hit = d3.polygonContains(mpts(f), [mx, my]) && !!ll && d3.geoContains(feat, ll);
-      if (hit) { perform(A.removeFills(layer, [f])); return; }
-    }
-    showToast('消せる塗りがありません');
+    if (!ll) return false;
+    const hit = layer.fills.filter(f => {
+      if (f.kind === 'lasso' && !d3.polygonContains(mpts(f), [mx, my])) return false;
+      return f.keys.some(k => {
+        const ft = byKey.get(k);
+        if (!ft) return false;
+        const b = ft._b;
+        if (mx < b[0][0] - 1 || mx > b[1][0] + 1 || my < b[0][1] - 1 || my > b[1][1] + 1) return false;
+        return d3.geoContains(ft, ll);
+      });
+    });
+    if (hit.length) { perform(A.removeFills(layer, hit)); return true; }
+    if (!quiet) showToast('消せる塗りがありません');
+    return false;
   }
 
-  function setCountryPattern(key, pid) {
+  function erasePinsAt(sx, sy) {
+    if (!state.guides.pins) return;
+    const { x, y, k } = state.transform;
+    const hit = state.pins.filter(p => {
+      const m = projection([p.lon, p.lat]);
+      return Math.hypot(x + m[0] * k - sx, y + m[1] * k - sy) < PIN_HIT;
+    });
+    if (hit.length) perform(A.removePins(hit));
+  }
+
+  // 国メモの「国全体の塗り」：塗りつぶし＋模様の組み合わせを変更
+  function setCountryFillSpec(key, mut) {
     const layer = drawable();
     if (!layer) return;
-    const nf = pid ? { id: 'F' + uid(), kind: 'country', country: key, pattern: pid, color: state.fillColor } : null;
-    const has = layer.fills.some(f => f.kind === 'country' && f.country === key);
-    if (!nf && !has) return;
+    const ex = layer.fills.filter(f => f.kind === 'country' && f.country === key).pop();
+    const nx = mut({ solid: ex ? ex.solid : false, pattern: ex ? ex.pattern : null });
+    let nf = null;
+    if (nx.solid || nx.pattern) {
+      nf = {
+        id: 'F' + uid(), kind: 'country', country: key, keys: [key],
+        pattern: nx.pattern || null, color: ex && ex.color ? ex.color : state.fillColor,
+        solid: !!nx.solid, solidColor: ex && ex.solid ? ex.solidColor : state.solidColor,
+        above: ex ? ex.above : false
+      };
+    }
+    if (!nf && !ex) return;
     perform(A.setCountryFill(layer, key, nf));
   }
 
   function clearActiveLayer() {
     const layer = activeLayer();
     if (!layer) return;
-    if (!layer.strokes.length && !layer.fills.length && !layer.stamps.length && !layer.texts.length) { showToast('消すものがありません'); return; }
-    if (!confirm(`「${layer.name}」の落書き・塗り・スタンプ・文字をすべて消しますか？`)) return;
+    if (!layer.strokes.length && !layer.fills.length && !layer.stamps.length && !layer.texts.length && !layer.notes.length) { showToast('消すものがありません'); return; }
+    if (!confirm(`「${layer.name}」の落書き・塗り・スタンプ・文字・メモをすべて消しますか？`)) return;
     finalizeText();
     perform(A.clear(layer));
     showToast('全消ししました（元に戻せます）');
@@ -1111,14 +1319,18 @@
     const layer = drawable();
     if (!layer) return;
     const st = stampDef();
+    const top = st.cat !== 'agri' && state.overPin;     // 工業・鉱産：ピン（都市）の上に半透明で重ねる（切替可）
     let m = toMap(sx, sy);
-    if (st.cat === 'ind') {                 // 工業スタンプ：近くにピン（都市）があればその上に
+    if (top) {
       const pin = pinAt(sx, sy);
       if (pin) m = projection([pin.lon, pin.lat]);
     }
     const ll = projection.invert(m);
     if (!ll || Math.abs(ll[1]) > 85) return;
-    const s = { id: 'S' + uid(), type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size: sizeVal('stamp') };
+    const s = {
+      id: 'S' + uid(), type: st.id, lon: round4(ll[0]), lat: round4(ll[1]), size: stampSizeVal(),
+      above: state.stampSide === 'above', top
+    };
     perform(A.addStamps(layer, [s]));
   }
 
@@ -1260,6 +1472,13 @@
     container.classList.remove('panning');
   }
 
+  // 指の軌跡に沿って間を埋めながら実行（速くなぞっても取りこぼさない）
+  function sweep(gg, p, fn) {
+    const l = gg.last || p, n = Math.max(1, Math.ceil(dist(l, p) / 6));
+    for (let i = 1; i <= n; i++) fn(l[0] + (p[0] - l[0]) * i / n, l[1] + (p[1] - l[1]) * i / n);
+    gg.last = p;
+  }
+
   function startPan(sx, sy, tap) {
     g = { type: 'pan', sx, sy, ox: state.transform.x, oy: state.transform.y, moved: false, tap, t: Date.now() };
   }
@@ -1296,7 +1515,9 @@
       }
       if (sub === 'eraser' && state.eraser === 'stroke') { g = { type: 'serase' }; eraseStrokeAt(sx, sy); return; }
       if (sub === 'eraser' && state.eraser === 'stamp') { g = { type: 'sterase' }; eraseStampsAt(sx, sy); return; }
-      if (needTarget() && state.lassoKey) {
+      if (sub === 'eraser' && state.eraser === 'fill') { g = { type: 'ferase', last: [sx, sy] }; eraseFillAt(sx, sy, false); return; }
+      if (sub === 'eraser' && state.eraser === 'pin') { g = { type: 'perase', last: [sx, sy] }; erasePinsAt(sx, sy); return; }
+      if (lassoActive() && (state.lassoScope === 'all' || state.lassoKey)) {
         if (startLasso(sx, sy)) { g = { type: 'lasso' }; return; }
         g = { type: 'none' }; return;
       }
@@ -1328,6 +1549,10 @@
       eraseStrokeAt(p[0], p[1]);
     } else if (g.type === 'sterase') {
       eraseStampsAt(p[0], p[1]);
+    } else if (g.type === 'ferase') {
+      sweep(g, p, (x, y) => eraseFillAt(x, y, true));
+    } else if (g.type === 'perase') {
+      sweep(g, p, erasePinsAt);
     } else if (g.type === 'pan') {
       const dx = p[0] - g.sx, dy = p[1] - g.sy;
       if (!g.moved && Math.hypot(dx, dy) > TAP_DIST) { g.moved = true; container.classList.add('panning'); }
@@ -1366,6 +1591,10 @@
   }, { passive: false });
 
   function handleTap(sx, sy) {
+    if (!(state.edit && state.tool === 'draw')) {       // 小さなメモのボタンは常にタップで開ける
+      const nh = noteAt(sx, sy);
+      if (nh) { openNote(nh.layer, nh.n); return; }
+    }
     if (!state.edit) {
       if (state.viewTarget === 'pin') {
         const p = pinAt(sx, sy);
@@ -1387,10 +1616,10 @@
     } else if (state.tool === 'draw') {
       const sub = state.sub;
       if (sub === 'country-fill') fillCountryAt(sx, sy);
-      else if (sub === 'eraser' && state.eraser === 'fill') eraseFillAt(sx, sy);
-      else if (sub === 'lasso') pickTarget(sx, sy);
+      else if (sub === 'lasso') { if (needTarget()) pickTarget(sx, sy); }
       else if (sub === 'text') textTap(sx, sy);
-      else if (sub === 'stamp') { if (needTarget()) pickTarget(sx, sy); else placeStamp(sx, sy); }
+      else if (sub === 'note') noteTap(sx, sy);
+      else if (sub === 'stamp') { if (lassoActive()) { if (needTarget()) pickTarget(sx, sy); } else placeStamp(sx, sy); }
     }
   }
 
@@ -1398,6 +1627,7 @@
    * ピン
    * ======================================================= */
   function placePin(sx, sy) {
+    if (!state.guides.pins) { showToast('ピンレイヤーが非表示です（レイヤーから表示できます）'); return; }
     const ll = projection.invert(toMap(sx, sy));
     if (!ll || Math.abs(ll[1]) > 85) return;
     const pin = { id: 'P' + uid(), lon: round4(ll[0]), lat: round4(ll[1]), title: '', memo: '', kind: 'normal' };
@@ -1407,6 +1637,35 @@
   }
 
   const curPin = () => state.pins.find(p => p.id === state.selectedPinId);
+
+  /* =========================================================
+   * メモ（落書き内の小さなメモ）
+   * ======================================================= */
+  function createNote(sx, sy) {
+    const layer = drawable();
+    if (!layer) return;
+    const ll = projection.invert(toMap(sx, sy));
+    if (!ll || Math.abs(ll[1]) > 85) return;
+    const n = { id: 'N' + uid(), lon: round4(ll[0]), lat: round4(ll[1]), text: '' };
+    layer.notes.push(n);
+    openNote(layer, n);
+  }
+
+  function noteTap(sx, sy) {
+    const hit = noteAt(sx, sy);
+    if (hit) { openNote(hit.layer, hit.n); return; }
+    if (state.panel === 'note') { closeMemo(); return; }
+    createNote(sx, sy);
+  }
+
+  function openNote(layer, n) {
+    closeMemo(true);
+    state.selectedNoteId = n.id;
+    $('note-text').value = n.text;
+    $('note-v-text').textContent = n.text;
+    setPanel('note');
+    renderNotes();
+  }
 
   function openPin(pin) {
     closeMemo(true);
@@ -1450,7 +1709,8 @@
     if (!key) return;
     const layer = activeLayer();
     const f = layer && layer.fills.filter(x => x.kind === 'country' && x.country === key).pop();
-    markChips($('country-chips'), f ? f.pattern : 'none');
+    markChips($('country-chips'), f ? [f.solid ? 'solid' : null, f.pattern].filter(Boolean) : ['none']);
+    $('country-color').value = f ? (f.pattern ? f.color : f.solidColor) : state.fillColor;
     $('country-layer-note').textContent = layer
       ? `塗りはレイヤー「${layer.name}」に追加されます。${layer.visible ? '' : '（このレイヤーは非表示です）'}`
       : '';
@@ -1461,27 +1721,35 @@
    * ======================================================= */
   function setPanel(name) {
     state.panel = name;
-    ['layer', 'pin', 'country'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
+    ['layer', 'pin', 'country', 'note'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
     $('app').classList.toggle('panel-open', !!name);
     $('btn-layers').classList.toggle('active', name === 'layer');
     if (name === 'layer') renderLayers();
   }
 
-  // ピン・国パネルを閉じる。編集中に名称のないピンは自動で削除
+  // ピン・国・メモのパネルを閉じる。編集中に名称のないピン／空のメモは自動で削除
   function closeMemo(keepPanelState) {
+    const nt = curNote();
     if (state.edit) {
       const p = curPin();
       if (p && !p.title.trim()) {
         state.pins = state.pins.filter(x => x !== p);
         showToast('名称のないピンを削除しました');
       }
+      if (nt && !nt.n.text.trim()) {
+        nt.layer.notes = nt.layer.notes.filter(x => x !== nt.n);
+        showToast('空のメモを削除しました');
+      }
       save();
     }
     const hadPin = state.selectedPinId;
+    const hadNote = state.selectedNoteId;
     state.selectedPinId = null;
     state.selectedCountryKey = null;
-    if (!keepPanelState && (state.panel === 'pin' || state.panel === 'country')) setPanel(null);
+    state.selectedNoteId = null;
+    if (!keepPanelState && ['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
     if (hadPin) renderPins();
+    if (hadNote) renderNotes();
     renderHighlight();
   }
 
@@ -1502,7 +1770,8 @@
   };
   const SYS_LAYERS = [
     { id: 'equator', name: '赤道' },
-    { id: 'tropics', name: '南回帰線と北回帰線' }
+    { id: 'tropics', name: '南回帰線と北回帰線' },
+    { id: 'pins', name: 'ピン' }
   ];
 
   function renderLayers() {
@@ -1515,7 +1784,7 @@
       div.dataset.sys = sl.id;
       div.innerHTML = `
         <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示にする' : '表示する'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
-        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">固定レイヤー ・ 常に最上位（削除不可）</div></div>`;
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">${sl.id === 'pins' ? `ピン <b>${state.pins.length}</b> 件 ・ 固定レイヤー（削除不可）` : '固定レイヤー ・ 常に最上位（削除不可）'}</div></div>`;
       list.appendChild(div);
     });
     const sep = document.createElement('div');
@@ -1532,7 +1801,7 @@
         <button class="eye ${layer.visible ? '' : 'off'}" data-act="eye" title="${layer.visible ? '非表示にする' : '表示する'}" aria-label="表示切替">${layer.visible ? ICON.eye : ICON.eyeOff}</button>
         <div class="lbody">
           <input type="text" class="lname" value="${esc(layer.name)}" maxlength="40" ${state.edit ? '' : 'readonly'} />
-          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
+          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
         </div>
         <div class="lactions edit-only">
           <button data-act="up" title="上へ" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
@@ -1550,6 +1819,7 @@
       if (e.target.closest('button')) {
         state.guides[item.dataset.sys] = !state.guides[item.dataset.sys];
         applyGuides(); save(); renderLayers();
+        if (item.dataset.sys === 'pins' && !state.guides.pins && state.panel === 'pin') closeMemo();
       }
       return;
     }
@@ -1559,7 +1829,7 @@
     const act = btn && btn.dataset.act;
     if (act === 'eye') {
       layer.visible = !layer.visible;
-      save(); renderLayers(); renderFills(); redraw();
+      save(); renderLayers(); renderFills(); redraw(); renderNotes();
       if (state.panel === 'country') renderCountryChips();
       return;
     }
@@ -1575,7 +1845,7 @@
         if (state.activeLayerId === layer.id) state.activeLayerId = state.layers[0].id;
         state.undo.length = 0; state.redo.length = 0; updateUndoButtons();
       }
-      save(); renderLayers(); renderFills(); redraw();
+      save(); renderLayers(); renderFills(); redraw(); renderNotes();
       return;
     }
     if (state.activeLayerId !== layer.id) {
@@ -1597,38 +1867,60 @@
    * UI
    * ======================================================= */
   let swId = 0;
+  // p: 模様オブジェクト / 'solid'（塗りつぶし） / null（なし）
   function swatch(p) {
     const id = 'sw' + (swId++);
-    const body = p
-      ? `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${p.w}" height="${p.h}" style="color:${state.fillColor}">${p.body}</pattern></defs>
+    let body;
+    if (p === 'solid') {
+      body = `<rect x=".5" y=".5" width="29" height="29" rx="6" fill="${state.solidColor}"/>`;
+    } else if (p) {
+      body = `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" width="${p.w}" height="${p.h}" style="color:${state.fillColor}">${p.body}</pattern></defs>
          <rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/>
-         <rect x=".5" y=".5" width="29" height="29" rx="6" fill="url(#${id})"/>`
-      : '<rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/><path d="M7 7l16 16" stroke="#999" stroke-width="1.4" stroke-linecap="round"/>';
+         <rect x=".5" y=".5" width="29" height="29" rx="6" fill="url(#${id})"/>`;
+    } else {
+      body = '<rect x=".5" y=".5" width="29" height="29" rx="6" fill="#fff"/><path d="M7 7l16 16" stroke="#999" stroke-width="1.4" stroke-linecap="round"/>';
+    }
     return `<svg viewBox="0 0 30 30" width="30" height="30">${body}<rect x=".5" y=".5" width="29" height="29" rx="6" fill="none" stroke="#bbb"/></svg>`;
   }
 
-  function buildChips(el, withNone, onPick) {
+  function buildChips(el, opt, onPick) {
     el.innerHTML = '';
-    (withNone ? [null] : []).concat(PATTERNS).forEach(p => {
+    const items = [];
+    if (opt.none) items.push(null);
+    if (opt.solid) items.push('solid');
+    PATTERNS.forEach(p => items.push(p));
+    items.forEach(p => {
       const b = document.createElement('button');
+      const pid = p === null ? 'none' : p === 'solid' ? 'solid' : p.id;
+      const name = p === null ? 'なし' : p === 'solid' ? '塗りつぶし' : p.name;
       b.className = 'pchip';
-      b.dataset.pid = p ? p.id : 'none';
-      b.title = p ? p.name : 'なし';
-      b.innerHTML = swatch(p) + `<span>${p ? p.name : 'なし'}</span>`;
-      b.onclick = () => onPick(p ? p.id : null);
+      b.dataset.pid = pid;
+      b.title = name;
+      b.setAttribute('aria-label', name);
+      b.innerHTML = swatch(p) + `<span>${name}</span>`;
+      b.onclick = () => onPick(pid);
       el.appendChild(b);
     });
   }
-  const markChips = (el, pid) => el.querySelectorAll('.pchip').forEach(b => b.classList.toggle('active', b.dataset.pid === pid));
+  const markChips = (el, ids) => el.querySelectorAll('.pchip').forEach(b => b.classList.toggle('active', ids.includes(b.dataset.pid)));
 
   function rebuildPatternChips() {
-    buildChips($('pattern-chips'), false, pid => { state.pattern = pid; markChips($('pattern-chips'), pid); });
-    buildChips($('country-chips'), true, pid => {
+    // 塗りつぶしは「模様」と同時に選べる。模様は1つだけ（もう一度タップで解除）
+    buildChips($('pattern-chips'), {}, pid => {
+      state.pattern = state.pattern === pid ? null : pid;
+      markChips($('pattern-chips'), state.pattern ? [state.pattern] : []);
+    });
+    $('btn-solid').innerHTML = swatch('solid');
+    buildChips($('country-chips'), { none: true, solid: true }, pid => {
       if (!state.edit || !state.selectedCountryKey) return;
-      setCountryPattern(state.selectedCountryKey, pid);
+      setCountryFillSpec(state.selectedCountryKey, cur => {
+        if (pid === 'none') return { solid: false, pattern: null };
+        if (pid === 'solid') return { solid: !cur.solid, pattern: cur.pattern };
+        return { solid: cur.solid, pattern: cur.pattern === pid ? null : pid };
+      });
       renderCountryChips();
     });
-    markChips($('pattern-chips'), state.pattern);
+    markChips($('pattern-chips'), state.pattern ? [state.pattern] : []);
     renderCountryChips();
   }
 
@@ -1664,32 +1956,38 @@
   }
 
   function updateSizePreview() {
+    if (!['pen', 'eraser', 'text'].includes(state.sub)) return;
     const key = sizeKey(), v = sizeVal(key), px = v * state.transform.k;
     const box = $('size-prev');
     $('size-px').textContent = '≈ ' + (px < 10 ? px.toFixed(1) : Math.round(px)) + 'px';
     if (key === 'pen') {
       const d = clamp(px, 1.5, 42);
       box.innerHTML = `<i style="width:${d}px;height:${d}px;background:${state.sub === 'eraser' ? '#aaa' : state.color}"></i>`;
-    } else if (key === 'text') {
-      box.innerHTML = `<b style="font-size:${clamp(px, 7, 38)}px;color:${state.color}">あA</b>`;
     } else {
-      const d = clamp(px, 8, 44);
-      box.innerHTML = `<img src="${spriteURL(stampDef())}" width="${d}" height="${d}" alt="">`;
+      box.innerHTML = `<b style="font-size:${clamp(px, 7, 38)}px;color:${state.color}">あA</b>`;
     }
   }
 
   function hintText() {
     if (state.tool === 'pin') return '地図をタップしてピンを追加／ピンをタップして編集';
     if (state.tool === 'country') return '国をタップして国メモを編集';
+    const lassoMsg = (what) => state.lassoScope === 'all'
+      ? `${what} — 囲んだ範囲の陸地すべて`
+      : (state.lassoKey ? `${what} — 選んだ国の中だけ（別の国はタップで選び直し）` : `${what} — まず対象の国をタップして選ぶ`);
     switch (state.sub) {
       case 'pen': return `ペン（国境の${state.side === 'above' ? '上' : '下'}${state.landOnly ? '・国上のみ' : ''}）— 1本指で描く／2本指で移動・拡大`;
-      case 'eraser': return { normal: '消しゴム — なぞって消す（このレイヤーの線のみ）', stroke: '線消し — 消したい線をなぞる', fill: '塗り消し — 消したい塗りをタップ', stamp: 'スタンプ消し — なぞって消す' }[state.eraser];
-      case 'country-fill': return '国塗り — 国をタップして模様で塗る（重ね塗りOK）';
-      case 'lasso': return state.lassoKey ? '投げ縄 — 選んだ国の中だけ塗れます（別の国はタップで選び直し）' : '投げ縄 — まず塗りたい国をタップして選ぶ';
+      case 'eraser': return {
+        normal: '消しゴム — なぞって消す（このレイヤーの線のみ）', stroke: '線消し — 消したい線をなぞる',
+        fill: '塗り消し — なぞった所の塗りが消えます', pin: 'ピン消し — なぞったピンが消えます', stamp: 'スタンプ消し — なぞって消す'
+      }[state.eraser];
+      case 'country-fill': return `国塗り — 国をタップして塗る（国境の${state.fillSide === 'above' ? '上' : '下'}・重ね塗りOK）`;
+      case 'lasso': return lassoMsg('投げ縄') + `（国境の${state.fillSide === 'above' ? '上' : '下'}）`;
       case 'text': return state.textSel ? 'テキスト編集中 — 「移動」で動かせます。空のままだと削除されます' : 'テキスト — 地図をタップして文字を置く／文字をタップして編集';
+      case 'note': return 'メモ — 地図をタップして小さなメモを追加／メモのボタンをタップして読む・編集';
       case 'stamp':
-        if (needTarget()) return state.lassoKey ? 'スタンプ — 選んだ国の中を囲んで敷き詰め' : 'スタンプ — まず国をタップして選ぶ';
-        return stampDef().cat === 'ind' ? 'スタンプ — タップ（ピンの近くならピンの上に半透明で）' : 'スタンプ — 地図をタップして押す';
+        if (lassoActive()) return lassoMsg('スタンプ') + '・敷き詰め';
+        return stampDef().cat === 'agri' ? 'スタンプ — 地図をタップして押す'
+          : (state.overPin ? 'スタンプ — タップ（ピンの近くならピンの上に半透明で）' : 'スタンプ — 地図をタップして置く');
     }
     return '';
   }
@@ -1715,27 +2013,38 @@
 
     const s = state.sub, agri = stampDef().cat === 'agri';
     const show = (id, v) => $(id).classList.toggle('hidden', !v);
+    const lassoOn = lassoActive();
+    const scopeCountry = state.lassoScope === 'country';
+    $('seg-stampsize').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.sz === state.stampSize));
+    $('seg-scope').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.scope === state.lassoScope));
+    $('seg-fillside').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.fs === (s === 'stamp' ? state.stampSide : state.fillSide)));
+    $('btn-overpin').classList.toggle('on', state.overPin);
     show('opt-pen', s === 'pen');
     show('opt-eraser', s === 'eraser');
     show('opt-text', s === 'text');
     show('opt-stamp', s === 'stamp');
     show('opt-stamp-pal', s === 'stamp');
     show('seg-stampmode', s === 'stamp' && agri);
-    show('opt-target', needTarget());
+    show('btn-overpin', s === 'stamp' && !agri);
+    show('opt-target', lassoOn);
+    show('target-name', lassoOn && scopeCountry);
+    show('opt-fillside', s === 'lasso' || s === 'country-fill' || (s === 'stamp' && (agri || !state.overPin)));
     show('opt-pattern', s === 'country-fill' || s === 'lasso');
-    show('opt-width', s === 'pen' || (s === 'eraser' && state.eraser === 'normal') || s === 'text' || s === 'stamp');
-    $('width-label').textContent = s === 'eraser' ? '消しゴム' : s === 'text' ? '文字サイズ' : s === 'stamp' ? 'サイズ' : '太さ';
+    show('opt-width', s === 'pen' || (s === 'eraser' && state.eraser === 'normal') || s === 'text');
+    $('width-label').textContent = s === 'eraser' ? '消しゴム' : s === 'text' ? '文字サイズ' : '太さ';
     $('size-slider').value = state.sizeT[sizeKey()];
     $('color-picker').value = state.color;
     $('text-color-picker').value = state.color;
     $('fill-color').value = state.fillColor;
+    $('solid-color').value = state.solidColor;
+    $('btn-solid').classList.toggle('active', state.solid);
 
     const tf = byKey.get(state.lassoKey);
     $('target-name').textContent = tf ? tf._name : '未選択（国をタップ）';
     $('target-name').classList.toggle('none', !tf);
-    $('btn-target-clear').classList.toggle('hidden', !tf);
+    $('btn-target-clear').classList.toggle('hidden', !(lassoOn && scopeCountry && tf));
 
-    markChips($('pattern-chips'), state.pattern);
+    markChips($('pattern-chips'), state.pattern ? [state.pattern] : []);
     container.classList.toggle('editing', state.edit);
     updateUndoButtons();
     if (drawBar) updateSizePreview();
@@ -1763,6 +2072,7 @@
     updateUI();
     renderHighlight();
     if (state.panel === 'layer') renderLayers();
+    if (!on) applyUpdate();
   }
 
   function setSub(sub) {
@@ -1796,6 +2106,18 @@
       const b = e.target.closest('button'); if (!b) return;
       state.stampMode = b.dataset.sm; state.lassoKey = null; updateUI(); renderHighlight();
     });
+    $('seg-scope').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      abortGesture(); state.lassoScope = b.dataset.scope; updateUI(); renderHighlight();
+    });
+    $('seg-fillside').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (state.sub === 'stamp') state.stampSide = b.dataset.fs; else state.fillSide = b.dataset.fs;
+      updateUI();
+    });
+    $('seg-stampsize').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { state.stampSize = b.dataset.sz; updateUI(); } });
+    $('btn-overpin').onclick = () => { state.overPin = !state.overPin; updateUI(); };
+    $('btn-solid').onclick = () => { state.solid = !state.solid; updateUI(); };
     $('btn-landonly').onclick = () => { state.landOnly = !state.landOnly; updateUI(); };
     $('btn-clear-layer').onclick = clearActiveLayer;
     $('btn-target-clear').onclick = () => { state.lassoKey = null; updateUI(); renderHighlight(); };
@@ -1804,6 +2126,19 @@
     $('color-picker').oninput = e => setColor(e.target.value);
     $('text-color-picker').oninput = e => setColor(e.target.value);
     $('fill-color').oninput = e => { state.fillColor = e.target.value; rebuildPatternChips(); };
+    $('solid-color').oninput = e => { state.solidColor = e.target.value; rebuildPatternChips(); };
+    $('country-color').onchange = e => {
+      const key = state.selectedCountryKey, layer = drawable();
+      if (!key || !state.edit || !layer) return;
+      const v = e.target.value;
+      const ex = layer.fills.filter(f => f.kind === 'country' && f.country === key).pop();
+      if (!ex) { state.fillColor = v; $('fill-color').value = v; rebuildPatternChips(); return; }
+      const nf = { ...ex, id: 'F' + uid() };
+      if (ex.pattern) { nf.color = v; state.fillColor = v; $('fill-color').value = v; }
+      else { nf.solidColor = v; state.solidColor = v; $('solid-color').value = v; }
+      perform(A.setCountryFill(layer, key, nf));
+      rebuildPatternChips();
+    };
     $('size-slider').oninput = e => { state.sizeT[sizeKey()] = +e.target.value; updateSizePreview(); };
 
     $('btn-undo').onclick = undo;
@@ -1862,9 +2197,26 @@
       const key = state.selectedCountryKey; if (!key || !state.edit) return;
       const v = $('country-memo').value;
       if (v.trim()) state.countries[key] = { memo: v }; else delete state.countries[key];
+      renderMemoMarks();
       saveSoon();
     });
     $('btn-save-country').onclick = () => { if (!state.edit) return; save(); showToast('保存しました'); closeMemo(); };
+
+    $('btn-close-note').onclick = () => closeMemo();
+    $('note-text').addEventListener('input', () => {
+      const o = curNote(); if (!o || !state.edit) return;
+      o.n.text = $('note-text').value; saveSoon();
+    });
+    $('btn-save-note').onclick = () => { if (!state.edit) return; save(); closeMemo(); };
+    $('btn-delete-note').onclick = () => {
+      if (!state.edit) return;
+      const o = curNote(); if (!o) return;
+      o.layer.notes = o.layer.notes.filter(x => x !== o.n);
+      state.selectedNoteId = null;
+      save(); closeMemo(); renderNotes();
+      showToast('メモを削除しました');
+    };
+    $('btn-update').onclick = () => { save(); location.reload(); };
 
     rebuildPatternChips();
     buildStampUI();
@@ -1883,6 +2235,34 @@
   }
 
   /* =========================================================
+   * 自動アップデート（再読み込みしなくても新版に切り替わる）
+   * ======================================================= */
+  async function checkUpdate() {
+    if (location.protocol === 'file:' || navigator.onLine === false) return;
+    try {
+      const r = await fetch(new URL('app.js', location.href).href, { cache: 'no-store' });
+      if (!r.ok) return;
+      const m = /const BUILD = '([^']+)'/.exec(await r.text());
+      if (!m || m[1] === BUILD) return;
+      updateReady = m[1];
+      applyUpdate();
+    } catch { /* オフライン等は無視 */ }
+  }
+  const busy = () => state.edit || !!state.textSel || !!cur || !!lasso || ptrs.size > 0 || (g && g.type !== 'none');
+  function applyUpdate() {
+    if (!updateReady) return;
+    let tried = null;
+    try { tried = sessionStorage.getItem('wn-upd'); } catch { /* noop */ }
+    if (!busy() && tried !== updateReady) {         // 操作中でなければ自動で切り替え（データは保存済み）
+      save();
+      try { sessionStorage.setItem('wn-upd', updateReady); } catch { /* noop */ }
+      location.reload();
+      return;
+    }
+    $('update-bar').classList.remove('hidden');
+  }
+
+  /* =========================================================
    * 起動
    * ======================================================= */
   async function boot() {
@@ -1892,11 +2272,12 @@
     updateUI();
     try {
       const base = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
-      const [countries, rivers] = await Promise.all([
+      const [countries, rivers, lakes] = await Promise.all([
         d3.json(base + 'ne_50m_admin_0_countries.geojson'),
-        d3.json(base + 'ne_50m_rivers_lake_centerlines.geojson')
+        d3.json(base + 'ne_50m_rivers_lake_centerlines.geojson'),
+        d3.json(base + 'ne_50m_lakes.geojson').catch(() => null)      // 五大湖など（失敗しても地図は表示）
       ]);
-      prepareData(countries, rivers);
+      prepareData(countries, rivers, lakes);
     } catch (err) {
       console.error(err);
       $('loading').textContent = '地図データの読み込みに失敗しました。通信状況を確認して再読み込みしてください。';
@@ -1906,9 +2287,15 @@
     dataReady = true;
     fitView();
     renderFills();
+    renderMemoMarks();
     renderPins();
+    renderNotes();
     applyTf();
     $('loading').classList.add('hidden');
+    setTimeout(checkUpdate, 4000);
+    setInterval(checkUpdate, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+    window.addEventListener('focus', checkUpdate);
   }
 
   boot();

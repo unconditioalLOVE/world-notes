@@ -52,6 +52,7 @@
             <button data-sub="lasso">投げ縄</button>
             <button data-sub="text">テキスト</button>
             <button data-sub="stamp">スタンプ</button>
+            <button data-sub="note">メモ</button>
           </div>
         </div>
 
@@ -67,11 +68,12 @@
         </div>
 
         <!-- 消しゴム -->
-        <div class="row opt hidden" id="opt-eraser">
-          <div class="seg" id="seg-eraser">
+        <div class="row opt hidden wrap" id="opt-eraser">
+          <div class="seg flex1" id="seg-eraser">
             <button data-er="normal">消しゴム</button>
             <button data-er="stroke">線消し</button>
             <button data-er="fill">塗り消し</button>
+            <button data-er="pin">ピン消し</button>
             <button data-er="stamp">スタンプ消し</button>
           </div>
           <button id="btn-clear-layer" class="chip-btn danger" title="このレイヤーの落書き・塗り・スタンプ・文字を全消し">全消し</button>
@@ -85,29 +87,52 @@
         </div>
 
         <!-- スタンプ -->
-        <div class="row opt hidden" id="opt-stamp">
+        <div class="row opt hidden wrap" id="opt-stamp">
           <div class="seg" id="seg-cat"></div>
           <div class="seg" id="seg-stampmode">
             <button data-sm="tap">タップ</button>
             <button data-sm="lasso">投げ縄で敷き詰め</button>
           </div>
+          <div class="seg" id="seg-stampsize" title="スタンプの大きさ">
+            <button data-sz="S">小</button>
+            <button data-sz="M">中</button>
+            <button data-sz="L">大</button>
+          </div>
+          <button id="btn-overpin" class="toggle" title="オンにすると、ピン（都市）の近くをタップした時にピンの上へ半透明で重ねます">ピンに重ねる</button>
         </div>
         <div class="row opt hidden" id="opt-stamp-pal">
           <div id="stamp-pal" class="pal"></div>
         </div>
 
-        <!-- 投げ縄の対象国 -->
-        <div class="row opt hidden" id="opt-target">
-          <span class="opt-label">対象の国</span>
+        <!-- 投げ縄の範囲 -->
+        <div class="row opt hidden wrap" id="opt-target">
+          <span class="opt-label">範囲</span>
+          <div class="seg" id="seg-scope">
+            <button data-scope="country">選んだ国</button>
+            <button data-scope="all">全ての国</button>
+          </div>
           <span id="target-name" class="target-name">未選択（国をタップ）</span>
           <button id="btn-target-clear" class="chip-btn hidden">解除</button>
         </div>
 
-        <!-- 模様 -->
+        <!-- 塗り・スタンプの位置 -->
+        <div class="row opt hidden" id="opt-fillside">
+          <span class="opt-label">位置</span>
+          <div class="seg" id="seg-fillside">
+            <button data-fs="above">国境の上</button>
+            <button data-fs="below">国境の下</button>
+          </div>
+        </div>
+
+        <!-- 模様・塗りつぶし（1行・横スクロールなし） -->
         <div class="row opt hidden" id="opt-pattern">
-          <span class="opt-label">模様</span>
-          <div id="pattern-chips" class="chips"></div>
-          <input type="color" id="fill-color" value="#111111" title="模様の色" />
+          <div class="fillrow">
+            <button id="btn-solid" class="pchip compact solid" title="塗りつぶし（模様と重ねられます）"></button>
+            <input type="color" id="solid-color" value="#111111" title="塗りつぶしの色" />
+            <span class="vsep"></span>
+            <div id="pattern-chips" class="chips compact"></div>
+            <input type="color" id="fill-color" value="#111111" title="模様の色" />
+          </div>
         </div>
 
         <!-- 太さ・大きさ -->
@@ -236,14 +261,41 @@
             </div>
           </div>
           <div class="memo-section">
-            <label>国全体の塗りパターン（色は「国塗り」の色）</label>
-            <div id="country-chips" class="chips wrap"></div>
+            <label>国全体の塗り</label>
+            <div class="fillrow">
+              <div id="country-chips" class="chips compact"></div>
+              <input type="color" id="country-color" value="#111111" title="色" />
+            </div>
             <p class="note" id="country-layer-note"></p>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- ===== メモパネル（落書き内の小さなメモ） ===== -->
+    <div id="note-panel" class="panel hidden">
+      <div class="panel-header">
+        <h3 class="edit-only">メモを編集</h3>
+        <button id="btn-close-note" class="close-btn" aria-label="閉じる">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="panel-body">
+        <div class="view-card view-only"><p id="note-v-text" class="note-text"></p></div>
+        <div class="edit-only">
+          <div class="memo-section">
+            <label>内容（空のままだと自動で削除されます）</label>
+            <textarea id="note-text" placeholder="メモを書く..."></textarea>
+            <div class="btn-row">
+              <button id="btn-save-note" class="primary-btn">保存</button>
+              <button id="btn-delete-note" class="danger-btn">削除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="update-bar" class="hidden"><span>新しいバージョンがあります</span><button id="btn-update">更新</button></div>
     <div id="toast" class="hidden"></div>
   </div>
   <script src="app.js"></script>
