@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-26-v10';
+  const BUILD = '2026-11-26-v11';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -2244,23 +2244,20 @@
         if (!d || typeof d !== 'object' || !Array.isArray(d.layers)) throw new Error('bad');
         if (!confirm('現在のデータをバックアップの内容に置き換えますか？')) return;
         localStorage.setItem(KEY, JSON.stringify(d));
+        lsSet('wn-sync-dirty', '1');          // 復元した内容を次の同期でクラウドへ送る
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
     };
-    $('btn-sync-open').onclick = () => { closeMemo(true); setPanel('sync'); renderSyncPanel(); };
+    $('btn-sync-open').onclick = () => {
+      if (sync.user) { syncNow(true); return; }
+      closeMemo(true); setPanel('sync'); renderSyncPanel();
+    };
+    $('btn-sync-account').onclick = () => { closeMemo(true); setPanel('sync'); renderSyncPanel(); };
     $('btn-close-sync').onclick = () => setPanel(null);
     $('btn-sync-login').onclick = () => authAct('login');
     $('btn-sync-signup').onclick = () => authAct('signup');
     $('btn-sync-out').onclick = () => { if (sync.auth && confirm('ログアウトしますか？（この端末のデータは残ります）')) sync.auth.signOut(); };
-    $('btn-sync-now').onclick = async () => {
-      if (!sync.on) return;
-      try {
-        const snap = await sync.ref.doc('head').get();
-        if (lsGet('wn-sync-dirty', '0') === '1' || !snap.exists) await push();
-        else if (snap.data().rev > sync.rev) await pullFrom(snap.data());
-        else setSyncStatus('ok', hhmm());
-      } catch (e) { setSyncStatus('error', e.message); }
-    };
+    $('btn-sync-now').onclick = () => syncNow(false);
     $('btn-update').onclick = () => { save(); location.reload(); };
 
     rebuildPatternChips();
@@ -2302,8 +2299,20 @@
     $('sync-login').classList.toggle('hidden', !!sync.user || sync.status === 'unconfigured');
     $('sync-account').classList.toggle('hidden', !sync.user);
     $('sync-user').textContent = sync.user ? sync.user.email : '';
-    $('btn-sync-open').classList.toggle('on', !!sync.user);
-    $('btn-sync-open').textContent = sync.user ? '同期：オン' : '同期';
+    $('btn-sync-open').classList.remove('on');
+    $('btn-sync-open').textContent = sync.user ? '今すぐ同期' : '同期';
+    $('btn-sync-account').classList.toggle('hidden', !sync.user);
+  }
+
+  async function syncNow(toast) {
+    if (!sync.on) { if (toast) showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
+    try {
+      const snap = await sync.ref.doc('head').get();
+      if (lsGet('wn-sync-dirty', '0') === '1' || !snap.exists) await push();
+      else if (snap.data().rev > sync.rev) await pullFrom(snap.data());
+      else setSyncStatus('ok', hhmm());
+      if (toast && sync.status === 'ok') showToast('同期しました');
+    } catch (e) { setSyncStatus('error', e.message); if (toast) showToast('同期エラー：' + e.message); }
   }
 
   function markDirty() { sync.ver++; lsSet('wn-sync-dirty', '1'); scheduleUpload(2000); }
