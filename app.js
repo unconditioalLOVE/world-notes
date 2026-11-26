@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-26-v9';
+  const BUILD = '2026-11-26-v10';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -329,6 +329,7 @@
     showToast._t = setTimeout(() => t.classList.add('hidden'), 2400);
   }
 
+  const sync = { on: false, user: null, db: null, auth: null, ref: null, rev: 0, lastN: 0, timer: null, busy: false, pulling: false, ver: 0, status: 'signedout', extra: '' };
   let saveTimer = null;
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); }
 
@@ -345,6 +346,7 @@
       localStorage.setItem(KEY, JSON.stringify({
         v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides
       }));
+      if (sync.on) markDirty();
     } catch {
       showToast('保存に失敗しました（容量不足の可能性）');
     }
@@ -389,6 +391,11 @@
       }
     } catch { d = null; }
     d = d || {};
+    applyData(d);
+    if (migrated) save();
+  }
+
+  function applyData(d) {
     state.pins = (Array.isArray(d.pins) ? d.pins : [])
       .filter(p => p && isFinite(p.lon) && isFinite(p.lat) && ((p.title || '').trim() || (p.memo || '').trim()))
       .map(p => ({
@@ -426,8 +433,7 @@
     if (d.guides && typeof d.guides === 'object') {
       state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
-    state.activeLayerId = state.layers[0].id;
-    if (migrated) save();
+    state.activeLayerId = state.layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : state.layers[0].id;
   }
 
   /* =========================================================
@@ -1721,7 +1727,7 @@
    * ======================================================= */
   function setPanel(name) {
     state.panel = name;
-    ['layer', 'pin', 'country', 'note'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
+    ['layer', 'pin', 'country', 'note', 'sync'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
     $('app').classList.toggle('panel-open', !!name);
     $('btn-layers').classList.toggle('active', name === 'layer');
     if (name === 'layer') renderLayers();
@@ -2241,6 +2247,20 @@
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
     };
+    $('btn-sync-open').onclick = () => { closeMemo(true); setPanel('sync'); renderSyncPanel(); };
+    $('btn-close-sync').onclick = () => setPanel(null);
+    $('btn-sync-login').onclick = () => authAct('login');
+    $('btn-sync-signup').onclick = () => authAct('signup');
+    $('btn-sync-out').onclick = () => { if (sync.auth && confirm('ログアウトしますか？（この端末のデータは残ります）')) sync.auth.signOut(); };
+    $('btn-sync-now').onclick = async () => {
+      if (!sync.on) return;
+      try {
+        const snap = await sync.ref.doc('head').get();
+        if (lsGet('wn-sync-dirty', '0') === '1' || !snap.exists) await push();
+        else if (snap.data().rev > sync.rev) await pullFrom(snap.data());
+        else setSyncStatus('ok', hhmm());
+      } catch (e) { setSyncStatus('error', e.message); }
+    };
     $('btn-update').onclick = () => { save(); location.reload(); };
 
     rebuildPatternChips();
@@ -2257,6 +2277,179 @@
 
     window.addEventListener('resize', () => { size(); syncDock(); applyTf(); });
     if (window.ResizeObserver) new ResizeObserver(syncDock).observe($('dock'));
+  }
+
+  /* =========================================================
+   * 端末間の同期（Firebase：メール+パスワード / Firestore）
+   * ======================================================= */
+  const SYNC_CH = 300000;
+  const DEVICE = (() => {
+    try { let d = localStorage.getItem('wn-device'); if (!d) { d = 'D' + uid(); localStorage.setItem('wn-device', d); } return d; } catch { return 'D' + uid(); }
+  })();
+  const lsGet = (k, def) => { try { const v = localStorage.getItem(k); return v === null ? def : v; } catch { return def; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* noop */ } };
+  const hhmm = () => new Date().toTimeString().slice(0, 5);
+
+  function setSyncStatus(st, extra) { sync.status = st; sync.extra = extra || ''; renderSyncPanel(); }
+  function renderSyncPanel() {
+    const T = {
+      unconfigured: '未設定です。firebase-config.js に Firebase の設定値を入れると使えます。',
+      signedout: 'ログインすると、端末をまたいで自動で同期されます（変更はほぼリアルタイムで反映）。',
+      syncing: '同期中…', ok: '同期済み ' + sync.extra,
+      offline: 'オフラインです（つながると自動で同期します）', error: '同期エラー：' + sync.extra
+    };
+    $('sync-status').textContent = T[sync.status] || '';
+    $('sync-login').classList.toggle('hidden', !!sync.user || sync.status === 'unconfigured');
+    $('sync-account').classList.toggle('hidden', !sync.user);
+    $('sync-user').textContent = sync.user ? sync.user.email : '';
+    $('btn-sync-open').classList.toggle('on', !!sync.user);
+    $('btn-sync-open').textContent = sync.user ? '同期：オン' : '同期';
+  }
+
+  function markDirty() { sync.ver++; lsSet('wn-sync-dirty', '1'); scheduleUpload(2000); }
+  function scheduleUpload(ms) {
+    if (!sync.on) return;
+    clearTimeout(sync.timer);
+    sync.timer = setTimeout(() => { sync.timer = null; if (sync.busy) scheduleUpload(1500); else push(); }, ms);
+  }
+
+  const hasLocalData = () => state.pins.length || Object.keys(state.countries).length ||
+    state.layers.some(l => l.strokes.length || l.fills.length || l.stamps.length || l.texts.length || l.notes.length);
+
+  async function push() {
+    if (!sync.on || !sync.ref) return;
+    clearTimeout(sync.timer); sync.timer = null;
+    sync.busy = true;
+    setSyncStatus('syncing');
+    const v = sync.ver;
+    let ok = false;
+    try {
+      // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
+      const str = JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides })
+        .replace(/[\u007f-￿]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
+      const n = Math.max(1, Math.ceil(str.length / SYNC_CH));
+      const rev = Math.max(Date.now(), sync.rev + 1);
+      const b = sync.db.batch();
+      for (let i = 0; i < n; i++) b.set(sync.ref.doc('c' + i), { s: str.slice(i * SYNC_CH, (i + 1) * SYNC_CH) });
+      for (let i = n; i < sync.lastN; i++) b.delete(sync.ref.doc('c' + i));
+      b.set(sync.ref.doc('head'), { rev, n, by: DEVICE });
+      await b.commit();
+      sync.rev = rev; sync.lastN = n; lsSet('wn-sync-rev', rev);
+      if (sync.ver === v) lsSet('wn-sync-dirty', '0');
+      ok = true;
+      setSyncStatus('ok', hhmm());
+    } catch (e) {
+      setSyncStatus(navigator.onLine === false ? 'offline' : 'error', (e && e.message) || '');
+    } finally { sync.busy = false; }
+    if (ok && sync.ver !== v) scheduleUpload(1500);
+    else if (!ok && sync.on) scheduleUpload(15000);      // 失敗時は後で再試行
+  }
+
+  const remoteBlocked = () => !!cur || !!lasso || !!state.textSel || ptrs.size > 0 || (g && g.type !== 'none') ||
+    (state.edit && ['pin', 'country', 'note'].includes(state.panel));
+
+  async function pullFrom(h) {
+    if (sync.pulling) return;
+    sync.pulling = true;
+    try {
+      const docs = await Promise.all(Array.from({ length: h.n }, (_, i) => sync.ref.doc('c' + i).get()));
+      if (docs.some(d => !d.exists)) throw new Error('データが揃っていません');
+      const d = JSON.parse(docs.map(x => x.data().s).join(''));
+      while (remoteBlocked()) await new Promise(r => setTimeout(r, 1500));   // 操作中は終わるまで待つ
+      if (!sync.on) return;
+      finalizeText();
+      state.selectedPinId = null; state.selectedCountryKey = null; state.selectedNoteId = null;
+      if (['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
+      state.undo.length = 0; state.redo.length = 0;
+      applyData(d);
+      lsSet(KEY, JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides }));
+      sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
+      if (dataReady) {
+        applyGuides(); renderFills(); renderMemoMarks(); renderPins(); renderNotes(); redraw(); updateUI();
+        if (state.panel === 'layer') renderLayers();
+      }
+      setSyncStatus('ok', hhmm());
+    } finally { sync.pulling = false; }
+  }
+
+  async function startSync(user) {
+    sync.user = user;
+    sync.ref = sync.db.collection('users').doc(user.uid).collection('wn');
+    sync.rev = +lsGet('wn-sync-rev', 0) || 0;
+    if (lsGet('wn-sync-user', '') !== user.uid) { sync.rev = 0; lsSet('wn-sync-rev', 0); lsSet('wn-sync-dirty', '0'); lsSet('wn-sync-user', user.uid); }
+    setSyncStatus('syncing');
+    try {
+      const snap = await sync.ref.doc('head').get();
+      sync.on = true;
+      if (!snap.exists) await push();
+      else {
+        const h = snap.data();
+        sync.lastN = h.n || 0;
+        if (lsGet('wn-sync-dirty', '0') === '1') await push();
+        else if (h.rev > sync.rev) {
+          if (sync.rev === 0 && hasLocalData()) {
+            if (confirm('クラウドにデータがあります。\nOK：クラウドのデータをこの端末に読み込む（この端末の内容は置き換わります）\nキャンセル：この端末の内容でクラウドを上書き')) await pullFrom(h);
+            else await push();
+          } else await pullFrom(h);
+        } else setSyncStatus('ok', hhmm());
+      }
+      if (sync.unsub) sync.unsub();
+      sync.unsub = sync.ref.doc('head').onSnapshot(s => {
+        if (!s.exists || (s.metadata && s.metadata.hasPendingWrites)) return;
+        const h = s.data();
+        if (h.by === DEVICE || h.rev <= sync.rev) return;
+        if (sync.timer || sync.busy || lsGet('wn-sync-dirty', '0') === '1') return;    // 自分の未送信の変更を優先
+        pullFrom(h).catch(e => setSyncStatus('error', e.message));
+      }, e => setSyncStatus(navigator.onLine === false ? 'offline' : 'error', e.message));
+    } catch (e) {
+      setSyncStatus(navigator.onLine === false ? 'offline' : 'error', (e && e.message) || '');
+    }
+  }
+
+  function stopSync() {
+    sync.on = false; sync.user = null; sync.ref = null;
+    clearTimeout(sync.timer); sync.timer = null;
+    if (sync.unsub) { sync.unsub(); sync.unsub = null; }
+    setSyncStatus('signedout');
+  }
+
+  const loadScript = src => new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = res; el.onerror = () => rej(new Error('Firebaseを読み込めません'));
+    document.head.appendChild(el);
+  });
+
+  async function initSync() {
+    const cfg = window.WN_FIREBASE;
+    if (!cfg || !cfg.apiKey) { setSyncStatus('unconfigured'); return; }
+    try {
+      if (!window.firebase) {
+        for (const f of ['app', 'auth', 'firestore']) await loadScript(`https://www.gstatic.com/firebasejs/10.12.2/firebase-${f}-compat.js`);
+      }
+      firebase.initializeApp(cfg);
+      sync.auth = firebase.auth();
+      sync.db = firebase.firestore();
+      sync.auth.onAuthStateChanged(u => { if (u) startSync(u); else stopSync(); });
+      window.addEventListener('online', () => { if (sync.on && lsGet('wn-sync-dirty', '0') === '1') scheduleUpload(500); });
+      window.addEventListener('offline', () => { if (sync.on) setSyncStatus('offline'); });
+    } catch (e) { setSyncStatus('error', e.message); }
+  }
+
+  const AUTH_MSG = {
+    'auth/invalid-email': 'メールアドレスの形式が正しくありません', 'auth/user-not-found': 'このメールアドレスは未登録です',
+    'auth/wrong-password': 'パスワードが違います', 'auth/invalid-credential': 'メールアドレスかパスワードが違います',
+    'auth/email-already-in-use': 'このメールアドレスは登録済みです（ログインしてください）',
+    'auth/weak-password': 'パスワードは6文字以上にしてください', 'auth/network-request-failed': '通信できません'
+  };
+  async function authAct(kind) {
+    if (!sync.auth) { showToast('同期が設定されていません'); return; }
+    const email = $('sync-email').value.trim(), pass = $('sync-pass').value;
+    if (!email || !pass) { showToast('メールアドレスとパスワードを入力してください'); return; }
+    try {
+      if (kind === 'signup') await sync.auth.createUserWithEmailAndPassword(email, pass);
+      else await sync.auth.signInWithEmailAndPassword(email, pass);
+      $('sync-pass').value = '';
+    } catch (e) { showToast(AUTH_MSG[e.code] || ('ログインできません：' + (e.code || e.message))); }
   }
 
   /* =========================================================
@@ -2317,6 +2510,7 @@
     renderNotes();
     applyTf();
     $('loading').classList.add('hidden');
+    initSync();
     setTimeout(checkUpdate, 4000);
     setInterval(checkUpdate, 5 * 60 * 1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });

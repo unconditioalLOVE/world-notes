@@ -664,3 +664,9 @@ input[readonly], textarea[readonly] {
 #app.edit #mode-hint { top: calc(46px + env(safe-area-inset-top)); }
 #app.edit #update-bar { top: calc(84px + env(safe-area-inset-top)); }
 #app.edit #bar-edit, #app.edit #toolbar { box-shadow: 0 0 0 1.5px #1a1a1a, var(--shadow); }
+
+#sync-panel input[type="email"], #sync-panel input[type="password"] {
+  width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; font-size: 15px; background: #fff;
+}
+#sync-status { margin-bottom: 12px; }
+.layer-foot.backup { flex-wrap: wrap; }
