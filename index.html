@@ -203,6 +203,21 @@
         <button id="btn-add-layer" class="primary-btn">レイヤーを追加</button>
       </div>
       <div class="layer-foot backup">
+        <div id="account-box" class="account-box">
+          <p id="account-status" class="account-status">未ログイン（この端末のみ）</p>
+          <div id="account-form" class="account-form">
+            <input type="email" id="auth-email" placeholder="メールアドレス" autocomplete="email" />
+            <input type="password" id="auth-pass" placeholder="パスワード（6文字以上）" autocomplete="current-password" />
+            <div class="btn-row">
+              <button id="btn-login" class="chip-btn" type="button">ログイン</button>
+              <button id="btn-signup" class="chip-btn" type="button">新規登録</button>
+            </div>
+          </div>
+          <div id="account-logged" class="account-logged hidden">
+            <button id="btn-sync" class="chip-btn" type="button">今すぐ同期</button>
+            <button id="btn-logout" class="chip-btn" type="button">ログアウト</button>
+          </div>
+        </div>
         <button id="btn-export" class="chip-btn">バックアップを保存</button>
         <button id="btn-import" class="chip-btn">復元</button>
         <input type="file" id="file-import" accept=".json,application/json" class="hidden" />
@@ -303,6 +318,10 @@
     <div id="update-bar" class="hidden"><span>新しいバージョンがあります</span><button id="btn-update">更新</button></div>
     <div id="toast" class="hidden"></div>
   </div>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

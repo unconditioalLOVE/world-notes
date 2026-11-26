@@ -648,3 +648,14 @@ input[readonly], textarea[readonly] {
 .fillrow { padding: 2px; }
 .layer-foot.backup { display: flex; gap: 8px; padding-top: 6px; }
 .layer-foot.backup .chip-btn { flex: 1; }
+
+/* account (minimal, matches existing chips) */
+.account-box { width: 100%; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+.account-status { font-size: 12px; color: #666; margin-bottom: 8px; }
+.account-form input[type="email"],
+.account-form input[type="password"] {
+  width: 100%; margin-bottom: 6px; padding: 8px 10px; border: 1px solid #e0e0e0;
+  border-radius: 8px; font-size: 13px; font-family: inherit;
+}
+.account-form .btn-row, .account-logged { display: flex; gap: 6px; flex-wrap: wrap; }
+.account-logged.hidden, .account-form.hidden { display: none; }

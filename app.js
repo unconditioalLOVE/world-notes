@@ -342,9 +342,14 @@
   function save() {
     clearTimeout(saveTimer);
     try {
-      localStorage.setItem(KEY, JSON.stringify({
-        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides
-      }));
+      const payload = {
+        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides,
+        updatedAt: Date.now()
+      };
+      cloudMeta.updatedAt = payload.updatedAt;
+      localStorage.setItem(KEY, JSON.stringify(payload));
+      // ログイン中ならクラウドにも反映（静かに）
+      if (fbUser) pushCloud();
     } catch {
       showToast('保存に失敗しました（容量不足の可能性）');
     }
@@ -2283,20 +2288,256 @@
     $('update-bar').classList.remove('hidden');
   }
 
+
+  /* =========================================================
+   * 地図データキャッシュ（IndexedDB）— 見た目は同じ、2回目以降を高速化
+   * ======================================================= */
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('world-notes-geo', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('geo');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key) {
+    try {
+      const db = await idbOpen();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction('geo', 'readonly');
+        const r = tx.objectStore('geo').get(key);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => reject(r.error);
+      });
+    } catch { return null; }
+  }
+  async function idbSet(key, val) {
+    try {
+      const db = await idbOpen();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('geo', 'readwrite');
+        tx.objectStore('geo').put(val, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch { /* ignore */ }
+  }
+  async function loadGeoCached(url, cacheKey) {
+    const cached = await idbGet(cacheKey);
+    if (cached) return cached;
+    const data = await d3.json(url);
+    idbSet(cacheKey, data); // fire and forget
+    return data;
+  }
+
+  /* =========================================================
+   * ログイン / クラウド同期（Firebase）
+   * ローカル保存は従来どおり。ログイン時のみクラウドと双方向同期。
+   * ======================================================= */
+  let fbAuth = null;
+  let fbDb = null;
+  let fbUser = null;
+  let syncing = false;
+  let cloudMeta = { updatedAt: 0 };
+
+  function firebaseReady() {
+    const cfg = window.FIREBASE_CONFIG || {};
+    return !!(window.firebase && cfg.apiKey && cfg.projectId);
+  }
+
+  function initFirebase() {
+    if (!firebaseReady()) return false;
+    try {
+      if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+      fbAuth = firebase.auth();
+      fbDb = firebase.firestore();
+      fbAuth.onAuthStateChanged(async (user) => {
+        fbUser = user;
+        updateAccountUI();
+        if (user) {
+          await pullCloud();
+        }
+      });
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  }
+
+  function updateAccountUI() {
+    const status = $('account-status');
+    const form = $('account-form');
+    const logged = $('account-logged');
+    if (!status) return;
+    if (!firebaseReady()) {
+      status.textContent = 'クラウド未設定（この端末のみ保存）';
+      if (form) form.classList.add('hidden');
+      if (logged) logged.classList.add('hidden');
+      return;
+    }
+    if (fbUser) {
+      status.textContent = 'ログイン中: ' + (fbUser.email || fbUser.uid);
+      if (form) form.classList.add('hidden');
+      if (logged) logged.classList.remove('hidden');
+    } else {
+      status.textContent = '未ログイン（この端末のみ）';
+      if (form) form.classList.remove('hidden');
+      if (logged) logged.classList.add('hidden');
+    }
+  }
+
+  function snapshotData() {
+    return {
+      v: 4,
+      pins: state.pins,
+      layers: state.layers,
+      countries: state.countries,
+      guides: state.guides,
+      updatedAt: Date.now()
+    };
+  }
+
+  function applySnapshot(d) {
+    if (!d || typeof d !== 'object') return;
+    if (Array.isArray(d.pins)) state.pins = d.pins;
+    if (Array.isArray(d.layers) && d.layers.length) {
+      state.layers = d.layers;
+      state.layers.forEach(l => {
+        if (!Array.isArray(l.strokes)) l.strokes = [];
+        if (!Array.isArray(l.fills)) l.fills = [];
+        if (!Array.isArray(l.stamps)) l.stamps = [];
+        if (!Array.isArray(l.texts)) l.texts = [];
+        if (!Array.isArray(l.notes)) l.notes = [];
+      });
+      state.activeLayerId = state.layers[0].id;
+    }
+    if (d.countries && typeof d.countries === 'object') state.countries = d.countries;
+    if (d.guides && typeof d.guides === 'object') {
+      state.guides = {
+        equator: d.guides.equator !== false,
+        tropics: d.guides.tropics !== false,
+        pins: d.guides.pins !== false
+      };
+    }
+    if (d.updatedAt) cloudMeta.updatedAt = d.updatedAt;
+  }
+
+  async function pushCloud() {
+    if (!fbUser || !fbDb || syncing) return;
+    syncing = true;
+    try {
+      const data = snapshotData();
+      await fbDb.collection('users').doc(fbUser.uid).set({ data, updatedAt: data.updatedAt }, { merge: true });
+      cloudMeta.updatedAt = data.updatedAt;
+    } catch (e) {
+      console.error(e);
+      showToast('クラウド保存に失敗しました');
+    } finally {
+      syncing = false;
+    }
+  }
+
+  async function pullCloud() {
+    if (!fbUser || !fbDb) return;
+    try {
+      const snap = await fbDb.collection('users').doc(fbUser.uid).get();
+      if (!snap.exists) {
+        // first login: upload local
+        await pushCloud();
+        showToast('クラウドに初期保存しました');
+        return;
+      }
+      const remote = snap.data() || {};
+      const remoteData = remote.data || remote;
+      const remoteAt = remote.updatedAt || remoteData.updatedAt || 0;
+      const localAt = cloudMeta.updatedAt || 0;
+      // Prefer newer. If remote newer, apply. If local newer, push.
+      if (remoteAt > localAt) {
+        applySnapshot(remoteData);
+        save(); // local mirror
+        if (dataReady) {
+          renderFills(); renderMemoMarks(); renderPins(); renderNotes(); applyGuides(); applyTf(); redraw(); renderLayers();
+        }
+        showToast('クラウドから同期しました');
+      } else if (localAt > remoteAt) {
+        await pushCloud();
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('クラウド同期に失敗しました');
+    }
+  }
+
+  async function authLogin(isSignUp) {
+    if (!firebaseReady() || !fbAuth) {
+      showToast('firebase-config.js に設定を入れてください');
+      return;
+    }
+    const email = ($('auth-email') && $('auth-email').value || '').trim();
+    const pass = ($('auth-pass') && $('auth-pass').value) || '';
+    if (!email || pass.length < 6) {
+      showToast('メールと6文字以上のパスワードを入力');
+      return;
+    }
+    try {
+      if (isSignUp) await fbAuth.createUserWithEmailAndPassword(email, pass);
+      else await fbAuth.signInWithEmailAndPassword(email, pass);
+      showToast(isSignUp ? '登録してログインしました' : 'ログインしました');
+    } catch (e) {
+      console.error(e);
+      const msg = (e && e.code) || '';
+      if (msg.includes('email-already-in-use')) showToast('このメールは登録済みです。ログインしてください');
+      else if (msg.includes('user-not-found') || msg.includes('wrong-password') || msg.includes('invalid-credential')) showToast('メールまたはパスワードが違います');
+      else if (msg.includes('weak-password')) showToast('パスワードは6文字以上にしてください');
+      else showToast('認証に失敗しました');
+    }
+  }
+
+  function bindAccount() {
+    const login = $('btn-login');
+    const signup = $('btn-signup');
+    const logout = $('btn-logout');
+    const sync = $('btn-sync');
+    if (login) login.onclick = () => authLogin(false);
+    if (signup) signup.onclick = () => authLogin(true);
+    if (logout) logout.onclick = async () => {
+      try { await fbAuth.signOut(); showToast('ログアウトしました'); } catch (e) { console.error(e); }
+    };
+    if (sync) sync.onclick = async () => {
+      if (!fbUser) return showToast('ログインしてください');
+      await pushCloud();
+      await pullCloud();
+      showToast('同期しました');
+    };
+    updateAccountUI();
+  }
+
+
   /* =========================================================
    * 起動
    * ======================================================= */
   async function boot() {
     load();
+    // restore cloudMeta from local
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.updatedAt) cloudMeta.updatedAt = d.updatedAt;
+      }
+    } catch {}
+    initFirebase();
     size();
     bind();
+    bindAccount();
     updateUI();
     try {
       const base = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
       const [countries, rivers, lakes] = await Promise.all([
-        d3.json(base + 'ne_50m_admin_0_countries.geojson'),
-        d3.json(base + 'ne_50m_rivers_lake_centerlines.geojson'),
-        d3.json(base + 'ne_50m_lakes.geojson').catch(() => null)      // 五大湖など（失敗しても地図は表示）
+        loadGeoCached(base + 'ne_50m_admin_0_countries.geojson', 'ne50-countries'),
+        loadGeoCached(base + 'ne_50m_rivers_lake_centerlines.geojson', 'ne50-rivers'),
+        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes').catch(() => null)
       ]);
       prepareData(countries, rivers, lakes);
     } catch (err) {
