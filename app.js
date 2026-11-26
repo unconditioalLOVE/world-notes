@@ -1945,6 +1945,7 @@
           <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${nFill}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b></div>
         </div>
         <div class="lactions edit-only">
+          <button type="button" class="drag-handle" data-act="drag" title="長押し不要：ドラッグで並び替え">⠿</button>
           <button data-act="del" title="削除">${ICON.del}</button>
         </div>`;
       list.appendChild(div);
@@ -1968,6 +1969,7 @@
           <div class="lmeta">レイヤー <b>${kids.length}</b></div>
         </div>
         <div class="lactions edit-only">
+          <button type="button" class="drag-handle" data-act="drag" title="ドラッグで並び替え">⠿</button>
           <button data-act="del" title="フォルダ解除">${ICON.del}</button>
         </div>`;
       list.appendChild(div);
@@ -2313,7 +2315,7 @@
   function finishDrag(x, y) {
     if (!ld) return;
     clearTimeout(ld.holdT);
-    const wasDrag = ld.ready && ld.moved;
+    const wasDrag = ld.ready && (ld.moved || ld.immediate);
     const dragId = ld.id, dragKind = ld.kind;
     let drop = ld.drop;
     if (wasDrag && !drop) drop = resolveDrop(x, y, dragId, dragKind);
@@ -2326,14 +2328,15 @@
 
   function canDragFromTarget(t) {
     if (!t || !state.edit) return null;
-    if (t.closest('button') && !t.closest('[data-act="drag"]')) return null;
-    if (t.classList && t.classList.contains('lname')) return null;
-    if (t.closest('input')) return null;
     const item = t.closest('.layer-item');
     if (!item || item.dataset.sys) return null;
     const kind = item.dataset.kind;
     if (kind !== 'layer' && kind !== 'folder') return null;
-    return item;
+    const handle = t.closest('[data-act="drag"]');
+    if (handle) return { item, immediate: true };
+    // 行本体の長押し（ボタン・入力は除外）
+    if (t.closest('button') || t.closest('input')) return null;
+    return { item, immediate: false };
   }
 
   const listEl = () => $('layer-list');
@@ -2342,8 +2345,9 @@
   document.addEventListener('touchstart', e => {
     if (!state.edit || state.panel !== 'layer') return;
     if (e.touches.length !== 1) return;
-    const item = canDragFromTarget(e.target);
-    if (!item) return;
+    const hit = canDragFromTarget(e.target);
+    if (!hit) return;
+    const item = hit.item;
     const [x, y] = xyFromEvent(e);
     endLayerDrag();
     ld = {
@@ -2351,10 +2355,14 @@
       x0: x, y0: y, _lx: x, _ly: y,
       moved: false, ready: false, _scrolled: false,
       ghost: null, drop: null, item, via: 'touch',
-      _touchGuard: Date.now() + 1200
+      _touchGuard: Date.now() + 1500,
+      immediate: !!hit.immediate
     };
-    // 早めにスクロール以外のOSジェスチャを抑えめにする準備
-    // 200ms 時点でほぼ静止なら、以降の touchmove で preventDefault 可能にする（OS長押しキャンセル対策）
+    if (hit.immediate) {
+      // ハンドル：すぐにドラッグ開始（iPadで確実）
+      activateDrag(x, y);
+      return;
+    }
     ld.claimT = setTimeout(() => {
       if (!ld || ld._scrolled || ld.ready) return;
       if (!ld._blockTouch) {
@@ -2362,7 +2370,7 @@
         ld._claiming = true;
         document.addEventListener('touchmove', ld._blockTouch, { passive: false });
       }
-    }, 200);
+    }, 180);
     ld.holdT = setTimeout(() => {
       if (!ld || ld._scrolled) { endLayerDrag(); return; }
       activateDrag(ld._lx, ld._ly);
@@ -2411,17 +2419,23 @@
   // --- Mouse（PC）※iPadのタッチ後の偽マウスイベントは無視 ---
   document.addEventListener('mousedown', e => {
     if (!state.edit || state.panel !== 'layer' || e.button !== 0) return;
-    if (ld && ld.via === 'touch') return; // タッチ長押し中に来ると壊れる
+    if (ld && ld.via === 'touch') return;
     if (ld && ld._touchGuard && Date.now() < ld._touchGuard) return;
-    const item = canDragFromTarget(e.target);
-    if (!item) return;
+    const hit = canDragFromTarget(e.target);
+    if (!hit) return;
+    const item = hit.item;
     endLayerDrag();
     ld = {
       id: item.dataset.id, kind: item.dataset.kind,
       x0: e.clientX, y0: e.clientY, _lx: e.clientX, _ly: e.clientY,
       moved: false, ready: false, _scrolled: false,
-      ghost: null, drop: null, item, via: 'mouse'
+      ghost: null, drop: null, item, via: 'mouse',
+      immediate: !!hit.immediate
     };
+    if (hit.immediate) {
+      activateDrag(e.clientX, e.clientY);
+      return;
+    }
     ld.holdT = setTimeout(() => {
       if (!ld || ld._scrolled) { endLayerDrag(); return; }
       activateDrag(ld._lx, ld._ly);
@@ -2883,7 +2897,7 @@
     $('btn-sync-login').onclick = () => authAct('login');
     $('btn-sync-signup').onclick = () => authAct('signup');
     $('btn-sync-out').onclick = () => { if (sync.auth && confirm('ログアウトしますか？（この端末のデータは残ります）')) sync.auth.signOut(); };
-    $('btn-sync-now').onclick = () => syncNow(false);
+    $('btn-sync-now').onclick = () => syncNow(true);
     $('btn-sync-force').onclick = async () => {
       if (!sync.on) { showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
       if (!confirm('この端末の内容でクラウドを上書きします。他の端末の内容は置き換わります。よろしいですか？')) return;

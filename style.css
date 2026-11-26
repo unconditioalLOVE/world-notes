@@ -773,3 +773,11 @@ input[readonly], textarea[readonly] {
   background: #fff !important;
   margin: 0 !important;
 }
+
+.drag-handle {
+  width: 36px; height: 36px; border: none; border-radius: 10px;
+  background: #ececec; color: #333; font-size: 16px; line-height: 1;
+  cursor: grab; touch-action: none; flex-shrink: 0;
+  -webkit-user-select: none; user-select: none;
+}
+.drag-handle:active { cursor: grabbing; background: #ddd; }
