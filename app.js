@@ -337,14 +337,38 @@
    * 保存／読み込み
    * ======================================================= */
   function blankLayer(name) {
-    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [], stamps: [], texts: [], notes: [] };
+    return { id: 'L' + uid(), name, visible: true, strokes: [], fills: [], stamps: [], texts: [], notes: [], folderId: null };
   }
+  function blankFolder(name) {
+    return { id: 'FD' + uid(), name: name || 'フォルダ', open: true };
+  }
+  function ensureOrder() {
+    if (!Array.isArray(state.folders)) state.folders = [];
+    if (!Array.isArray(state.order)) state.order = [];
+    const fids = new Set(state.folders.map(f => f.id));
+    const lids = new Set(state.layers.map(l => l.id));
+    // 無効な参照を除去
+    state.order = state.order.filter(o =>
+      (o.t === 'folder' && fids.has(o.id)) ||
+      (o.t === 'layer' && lids.has(o.id) && !state.layers.find(l => l.id === o.id)?.folderId)
+    );
+    const inOrder = new Set(state.order.map(o => o.t + ':' + o.id));
+    state.folders.forEach(f => {
+      if (!inOrder.has('folder:' + f.id)) state.order.push({ t: 'folder', id: f.id });
+    });
+    state.layers.forEach(l => {
+      if (!l.folderId && !inOrder.has('layer:' + l.id)) state.order.push({ t: 'layer', id: l.id });
+    });
+  }
+  function folderById(id) { return (state.folders || []).find(f => f.id === id); }
+  function layersInFolder(fid) { return state.layers.filter(l => l.folderId === fid); }
+
 
   function save() {
     clearTimeout(saveTimer);
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers
+        v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers
       }));
       if (sync.on) markDirty();
     } catch {
@@ -408,6 +432,7 @@
       id: l.id || 'L' + uid(),
       name: l.name || '無題',
       visible: l.visible !== false,
+      folderId: l.folderId || null,
       strokes: (Array.isArray(l.strokes) ? l.strokes : []).filter(s => s && Array.isArray(s.pts) && s.pts.length > 1)
         .map(s => {
           const w = s.width > 0 ? s.width : (s.px > 0 ? s.px / kInit : 1);   // 旧版(画面px固定)からの換算
@@ -435,6 +460,14 @@
     }
     state.activeLayerId = state.layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : state.layers[0].id;
     if (typeof d.showRivers === 'boolean') state.showRivers = d.showRivers;
+    state.folders = (Array.isArray(d.folders) ? d.folders : []).map(f => ({
+      id: f.id || 'FD' + uid(), name: f.name || 'フォルダ', open: f.open !== false
+    }));
+    state.order = Array.isArray(d.order) ? d.order.filter(o => o && o.id && (o.t === 'layer' || o.t === 'folder')) : [];
+    // 孤立した folderId を掃除
+    const fids = new Set(state.folders.map(f => f.id));
+    state.layers.forEach(l => { if (l.folderId && !fids.has(l.folderId)) l.folderId = null; });
+    ensureOrder();
   }
 
   /* =========================================================
@@ -1840,51 +1873,142 @@
     del: '<svg viewBox="0 0 24 24" class="icon"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
   const SYS_LAYERS = [
+    { id: 'pins', name: 'ピン' },
     { id: 'equator', name: '赤道' },
     { id: 'tropics', name: '南回帰線と北回帰線' },
-    { id: 'pins', name: 'ピン' },
     { id: 'rivers', name: '河川' }
   ];
 
   function renderLayers() {
+    ensureOrder();
     const list = $('layer-list');
     list.innerHTML = '';
+
+    // 固定レイヤー
     SYS_LAYERS.forEach(sl => {
       const on = sl.id === 'rivers' ? state.showRivers : state.guides[sl.id];
       const div = document.createElement('div');
       div.className = 'layer-item sys' + (on ? '' : ' off');
       div.dataset.sys = sl.id;
-      let meta = '固定レイヤー ・ 常に最上位（削除不可）';
-      if (sl.id === 'pins') meta = `ピン <b>${state.pins.length}</b> 件 ・ 固定レイヤー（削除不可）`;
-      if (sl.id === 'rivers') meta = '固定レイヤー（削除不可）';
+      let meta = '';
+      if (sl.id === 'pins') meta = `ピン <b>${state.pins.length}</b> 件`;
       div.innerHTML = `
-        <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示にする' : '表示する'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
-        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div><div class="lmeta">${meta}</div></div>`;
+        <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示' : '表示'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div>${meta ? `<div class="lmeta">${meta}</div>` : ''}</div>`;
       list.appendChild(div);
     });
+
     const sep = document.createElement('div');
     sep.className = 'layer-sep';
     sep.textContent = '描画レイヤー';
     list.appendChild(sep);
 
-    state.layers.forEach((layer, i) => {
+    const renderLayerRow = (layer, depth) => {
       const div = document.createElement('div');
-      div.className = 'layer-item' + (layer.id === state.activeLayerId ? ' active' : '') + (layer.visible ? '' : ' off');
+      div.className = 'layer-item' + (layer.id === state.activeLayerId ? ' active' : '') + (layer.visible ? '' : ' off') + (depth ? ' in-folder' : '');
       div.dataset.id = layer.id;
+      div.dataset.kind = 'layer';
+      if (depth) div.style.marginLeft = '18px';
       const nLines = layer.strokes.filter(s => s.type === 'pen').length;
+      const nFill = layer.fills.filter(f => f.kind === 'country').length;
       div.innerHTML = `
-        <button class="eye ${layer.visible ? '' : 'off'}" data-act="eye" title="${layer.visible ? '非表示にする' : '表示する'}" aria-label="表示切替">${layer.visible ? ICON.eye : ICON.eyeOff}</button>
+        <button class="eye ${layer.visible ? '' : 'off'}" data-act="eye" title="${layer.visible ? '非表示' : '表示'}" aria-label="表示切替">${layer.visible ? ICON.eye : ICON.eyeOff}</button>
         <div class="lbody">
           <input type="text" class="lname" value="${esc(layer.name)}" maxlength="40" ${state.edit ? '' : 'readonly'} />
-          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${layer.fills.filter(f => f.kind === 'country').length}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b>${layer.id === state.activeLayerId ? ' ・ 描画先' : ''}</div>
+          <div class="lmeta">線 <b>${nLines}</b> ・ 塗り <b>${nFill}</b> ・ スタンプ <b>${layer.stamps.length}</b> ・ 文字 <b>${layer.texts.length}</b> ・ メモ <b>${layer.notes.length}</b></div>
         </div>
         <div class="lactions edit-only">
-          <button data-act="up" title="上へ" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
-          <button data-act="down" title="下へ" ${i === state.layers.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
+          <button data-act="up" title="上へ">${ICON.up}</button>
+          <button data-act="down" title="下へ">${ICON.down}</button>
           <button data-act="del" title="削除">${ICON.del}</button>
         </div>`;
       list.appendChild(div);
+    };
+
+    const renderFolderRow = (folder) => {
+      const kids = layersInFolder(folder.id);
+      const div = document.createElement('div');
+      div.className = 'layer-item folder' + (folder.open ? ' open' : '');
+      div.dataset.id = folder.id;
+      div.dataset.kind = 'folder';
+      div.innerHTML = `
+        <button class="eye fold-toggle" data-act="fold" title="${folder.open ? '閉じる' : '開く'}" aria-label="開閉">${folder.open ? '▼' : '▶'}</button>
+        <div class="lbody">
+          <input type="text" class="lname" value="${esc(folder.name)}" maxlength="40" ${state.edit ? '' : 'readonly'} data-folder="1" />
+          <div class="lmeta">レイヤー <b>${kids.length}</b></div>
+        </div>
+        <div class="lactions edit-only">
+          <button data-act="up" title="上へ">${ICON.up}</button>
+          <button data-act="down" title="下へ">${ICON.down}</button>
+          <button data-act="del" title="フォルダ解除">${ICON.del}</button>
+        </div>`;
+      list.appendChild(div);
+      if (folder.open) kids.forEach(l => renderLayerRow(l, 1));
+    };
+
+    state.order.forEach(o => {
+      if (o.t === 'folder') {
+        const f = folderById(o.id);
+        if (f) renderFolderRow(f);
+      } else if (o.t === 'layer') {
+        const l = state.layers.find(x => x.id === o.id);
+        if (l && !l.folderId) renderLayerRow(l, 0);
+      }
     });
+  }
+
+  function orderIndex(id, t) {
+    return state.order.findIndex(o => o.id === id && o.t === t);
+  }
+  function moveOrder(id, t, dir) {
+    const i = orderIndex(id, t);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= state.order.length) return;
+    const tmp = state.order[i];
+    state.order[i] = state.order[j];
+    state.order[j] = tmp;
+  }
+  function moveLayerInList(layerId, dir) {
+    const layer = state.layers.find(l => l.id === layerId);
+    if (!layer) return;
+    if (layer.folderId) {
+      const sibs = layersInFolder(layer.folderId);
+      const i = sibs.findIndex(l => l.id === layerId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= sibs.length) return;
+      const a = state.layers.indexOf(sibs[i]);
+      const b = state.layers.indexOf(sibs[j]);
+      [state.layers[a], state.layers[b]] = [state.layers[b], state.layers[a]];
+    } else {
+      moveOrder(layerId, 'layer', dir);
+      // also keep layers array roughly aligned for top-level
+      const tops = state.layers.filter(l => !l.folderId);
+      const i = tops.findIndex(l => l.id === layerId);
+      const j = i + dir;
+      if (i >= 0 && j >= 0 && j < tops.length) {
+        const a = state.layers.indexOf(tops[i]);
+        const b = state.layers.indexOf(tops[j]);
+        [state.layers[a], state.layers[b]] = [state.layers[b], state.layers[a]];
+      }
+    }
+  }
+  function putLayerInFolder(layerId, folderId) {
+    const layer = state.layers.find(l => l.id === layerId);
+    const folder = folderById(folderId);
+    if (!layer || !folder) return;
+    layer.folderId = folderId;
+    state.order = state.order.filter(o => !(o.t === 'layer' && o.id === layerId));
+    folder.open = true;
+  }
+  function takeLayerFromFolder(layerId, afterOrderIdx) {
+    const layer = state.layers.find(l => l.id === layerId);
+    if (!layer) return;
+    layer.folderId = null;
+    state.order = state.order.filter(o => !(o.t === 'layer' && o.id === layerId));
+    const item = { t: 'layer', id: layerId };
+    if (afterOrderIdx == null || afterOrderIdx < 0) state.order.push(item);
+    else state.order.splice(afterOrderIdx, 0, item);
   }
 
   $('layer-list').addEventListener('click', e => {
@@ -1905,10 +2029,48 @@
       }
       return;
     }
-    const layer = state.layers.find(l => l.id === item.dataset.id);
-    if (!layer) return;
+
+    const kind = item.dataset.kind;
+    const id = item.dataset.id;
     const btn = e.target.closest('button');
     const act = btn && btn.dataset.act;
+
+    // フォルダ
+    if (kind === 'folder') {
+      const folder = folderById(id);
+      if (!folder) return;
+      if (act === 'fold' || (!act && !e.target.classList.contains('lname'))) {
+        if (act === 'fold' || !state.edit) {
+          folder.open = !folder.open;
+          save(); renderLayers();
+          return;
+        }
+      }
+      if (act && state.edit) {
+        if (act === 'up') moveOrder(id, 'folder', -1);
+        else if (act === 'down') moveOrder(id, 'folder', 1);
+        else if (act === 'del') {
+          // フォルダだけ解除。中のレイヤーは残す
+          const oi = orderIndex(id, 'folder');
+          const kids = layersInFolder(id);
+          kids.forEach(l => { l.folderId = null; });
+          state.folders = state.folders.filter(f => f.id !== id);
+          state.order = state.order.filter(o => !(o.t === 'folder' && o.id === id));
+          // 中身をフォルダがあった位置に展開
+          const inserts = kids.map(l => ({ t: 'layer', id: l.id }));
+          if (oi >= 0) state.order.splice(oi, 0, ...inserts);
+          else state.order.push(...inserts);
+          ensureOrder();
+        }
+        save(); renderLayers();
+        return;
+      }
+      return;
+    }
+
+    // 通常レイヤー
+    const layer = state.layers.find(l => l.id === id);
+    if (!layer) return;
     if (act === 'eye') {
       layer.visible = !layer.visible;
       save(); renderLayers(); renderFills(); redraw(); renderNotes();
@@ -1916,14 +2078,14 @@
       return;
     }
     if (act && state.edit) {
-      const i = state.layers.indexOf(layer);
-      if (act === 'up' && i > 0) [state.layers[i - 1], state.layers[i]] = [state.layers[i], state.layers[i - 1]];
-      else if (act === 'down' && i < state.layers.length - 1) [state.layers[i + 1], state.layers[i]] = [state.layers[i], state.layers[i + 1]];
+      if (act === 'up') moveLayerInList(id, -1);
+      else if (act === 'down') moveLayerInList(id, 1);
       else if (act === 'del') {
         if (state.layers.length <= 1) { showToast('描画レイヤーは最低1つ必要です'); return; }
-        if (!confirm(`レイヤー「${layer.name}」を削除しますか？（元に戻せません）`)) return;
+        if (!confirm(`レイヤー「${layer.name}」を削除しますか？`)) return;
         finalizeText();
         state.layers = state.layers.filter(l => l !== layer);
+        state.order = state.order.filter(o => !(o.t === 'layer' && o.id === id));
         if (state.activeLayerId === layer.id) state.activeLayerId = state.layers[0].id;
         state.undo.length = 0; state.redo.length = 0; updateUndoButtons();
       }
@@ -1941,9 +2103,131 @@
   $('layer-list').addEventListener('change', e => {
     if (!e.target.classList.contains('lname') || !state.edit) return;
     const item = e.target.closest('.layer-item');
+    if (!item) return;
+    if (e.target.dataset.folder) {
+      const folder = folderById(item.dataset.id);
+      if (folder) { folder.name = e.target.value.trim() || 'フォルダ'; e.target.value = folder.name; save(); }
+      return;
+    }
     const layer = state.layers.find(l => l.id === item.dataset.id);
     if (layer) { layer.name = e.target.value.trim() || '無題'; e.target.value = layer.name; save(); }
   });
+
+  // ---- レイヤー長押しドラッグでフォルダへ格納 ----
+  let ld = null; // layer drag state
+  function clearDropHl() {
+    document.querySelectorAll('.layer-item.drop-target').forEach(el => el.classList.remove('drop-target'));
+  }
+  function endLayerDrag() {
+    if (!ld) return;
+    clearTimeout(ld.expandT);
+    clearDropHl();
+    if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
+    ld = null;
+  }
+  $('layer-list').addEventListener('pointerdown', e => {
+    if (!state.edit) return;
+    const item = e.target.closest('.layer-item');
+    if (!item || item.dataset.sys || item.dataset.kind === 'folder') return;
+    if (e.target.closest('button') || e.target.classList.contains('lname')) return;
+    const id = item.dataset.id;
+    const layer = state.layers.find(l => l.id === id);
+    if (!layer) return;
+    const pid = e.pointerId;
+    ld = {
+      id, pid,
+      x0: e.clientX, y0: e.clientY,
+      moved: false,
+      ready: false,
+      ghost: null,
+      targetFolder: null,
+      expandT: null
+    };
+    ld.holdT = setTimeout(() => {
+      if (!ld || ld.pid !== pid) return;
+      ld.ready = true;
+      item.classList.add('dragging');
+      const g = item.cloneNode(true);
+      g.classList.add('layer-ghost');
+      g.style.width = item.offsetWidth + 'px';
+      document.body.appendChild(g);
+      ld.ghost = g;
+      ld.ghost.style.left = e.clientX + 'px';
+      ld.ghost.style.top = e.clientY + 'px';
+      try { item.setPointerCapture(pid); } catch (err) {}
+    }, 420);
+  });
+  $('layer-list').addEventListener('pointermove', e => {
+    if (!ld || e.pointerId !== ld.pid) return;
+    const dx = e.clientX - ld.x0, dy = e.clientY - ld.y0;
+    if (!ld.ready) {
+      if (Math.hypot(dx, dy) > 10) { clearTimeout(ld.holdT); endLayerDrag(); }
+      return;
+    }
+    ld.moved = true;
+    if (ld.ghost) {
+      ld.ghost.style.left = e.clientX + 'px';
+      ld.ghost.style.top = e.clientY + 'px';
+    }
+    clearDropHl();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const hit = el && el.closest && el.closest('.layer-item');
+    if (hit && hit.dataset.kind === 'folder' && hit.dataset.id) {
+      hit.classList.add('drop-target');
+      if (ld.targetFolder !== hit.dataset.id) {
+        ld.targetFolder = hit.dataset.id;
+        clearTimeout(ld.expandT);
+        ld.expandT = setTimeout(() => {
+          const f = folderById(ld.targetFolder);
+          if (f && !f.open) { f.open = true; renderLayers(); }
+        }, 480);
+      }
+    } else if (hit && hit.dataset.kind === 'layer' && !hit.classList.contains('in-folder')) {
+      // トップレベルへ戻す候補
+      hit.classList.add('drop-target');
+      ld.targetFolder = null;
+      clearTimeout(ld.expandT);
+    } else {
+      ld.targetFolder = null;
+      clearTimeout(ld.expandT);
+    }
+  });
+  function finishLayerDrag(e) {
+    if (!ld || e.pointerId !== ld.pid) return;
+    clearTimeout(ld.holdT);
+    const wasReady = ld.ready && ld.moved;
+    const layerId = ld.id;
+    const foldId = ld.targetFolder;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const hit = el && el.closest && el.closest('.layer-item');
+    endLayerDrag();
+    document.querySelectorAll('.layer-item.dragging').forEach(x => x.classList.remove('dragging'));
+    if (!wasReady) return;
+    if (foldId) {
+      putLayerInFolder(layerId, foldId);
+      save(); renderLayers();
+      return;
+    }
+    // フォルダ外のトップレベルへ
+    if (hit && hit.dataset.kind === 'layer' && hit.dataset.id !== layerId) {
+      const layer = state.layers.find(l => l.id === layerId);
+      if (layer && layer.folderId) {
+        const after = orderIndex(hit.dataset.id, 'layer');
+        takeLayerFromFolder(layerId, after < 0 ? null : after + 1);
+        save(); renderLayers();
+      }
+    } else if (hit && hit.dataset.kind === 'folder') {
+      // already handled via foldId
+    } else {
+      const layer = state.layers.find(l => l.id === layerId);
+      if (layer && layer.folderId) {
+        takeLayerFromFolder(layerId, null);
+        save(); renderLayers();
+      }
+    }
+  }
+  $('layer-list').addEventListener('pointerup', finishLayerDrag);
+  $('layer-list').addEventListener('pointercancel', finishLayerDrag);
 
   /* =========================================================
    * UI
@@ -2247,7 +2531,16 @@
       if (!state.edit) return;
       const l = blankLayer('新しいレイヤー');
       state.layers.unshift(l);
+      state.order.unshift({ t: 'layer', id: l.id });
       state.activeLayerId = l.id;
+      save(); renderLayers();
+    };
+    const addFolderBtn = $('btn-add-folder');
+    if (addFolderBtn) addFolderBtn.onclick = () => {
+      if (!state.edit) return;
+      const f = blankFolder('フォルダ');
+      state.folders.unshift(f);
+      state.order.unshift({ t: 'folder', id: f.id });
       save(); renderLayers();
     };
 
@@ -2430,7 +2723,7 @@
     let ok = false;
     try {
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
-      const str = JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers })
+      const str = JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers })
         .replace(/[\u007f-￿]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
       const n = Math.max(1, Math.ceil(str.length / SYNC_CH));
       const rev = Math.max(Date.now(), sync.rev + 1);
@@ -2466,7 +2759,7 @@
       if (['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
       state.undo.length = 0; state.redo.length = 0;
       applyData(d);
-      lsSet(KEY, JSON.stringify({ v: 4, pins: state.pins, layers: state.layers, countries: state.countries, guides: state.guides, showRivers: state.showRivers }));
+      lsSet(KEY, JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers }));
       sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
       if (dataReady) {
         applyGuides(); renderFills(); renderMemoMarks(); renderPins(); renderNotes(); redraw(); updateUI();

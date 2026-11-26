@@ -670,3 +670,23 @@ input[readonly], textarea[readonly] {
 }
 #sync-status { margin-bottom: 12px; }
 .layer-foot.backup { flex-wrap: wrap; }
+
+/* folders */
+.layer-item.folder { background: #f6f6f6; border-style: solid; }
+.layer-item.folder .fold-toggle {
+  width: 36px; height: 36px; border: none; border-radius: 10px;
+  background: #3d3d3d; color: #fff; font-size: 10px; cursor: pointer; flex-shrink: 0;
+}
+.layer-item.in-folder { background: #fff; }
+.layer-item.drop-target {
+  outline: 2px solid #111; outline-offset: 1px;
+  background: #eaeaea !important;
+}
+.layer-item.dragging { opacity: 0.35; }
+.layer-ghost {
+  position: fixed; z-index: 9999; pointer-events: none;
+  transform: translate(-20px, -20px) scale(0.96);
+  opacity: 0.9; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  border-radius: 12px; background: #fff;
+}
+.layer-foot.edit-only { display: flex; flex-wrap: wrap; gap: 8px; }
