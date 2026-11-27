@@ -604,40 +604,22 @@ input[readonly], textarea[readonly] {
   padding: 0; background: none; cursor: pointer; flex-shrink: 0;
 }
 
-/* スタンプ選択ボタン＋候補メニュー */
-.stpick {
-  display: flex; align-items: center; gap: 8px;
-  min-height: 44px; padding: 4px 14px 4px 8px;
-  border: 1.5px solid #111; background: #fff; border-radius: 12px;
-  font-size: 12.5px; font-weight: 600; color: #111; cursor: pointer; flex-shrink: 0;
-}
-.stpick img { width: 34px; height: 34px; display: block; }
-.stpick.empty { border: 1.5px dashed #aaa; color: var(--muted); font-weight: 500; padding: 4px 14px; }
-.stpick.open { box-shadow: 0 0 0 1px #111; }
-#stamp-backdrop { position: fixed; inset: 0; z-index: 9000; background: rgba(0, 0, 0, 0.12); touch-action: none; }
-#stamp-menu {
-  position: fixed; z-index: 9001;
-  width: min(440px, calc(100vw - 24px));
-  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-  background: #fff; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line);
-  padding: 6px 10px 12px;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px;
-  user-select: none; -webkit-user-select: none;
-}
-#stamp-menu.hidden { display: none !important; }
-.stm-head {
-  grid-column: 1 / -1; position: sticky; top: -6px; z-index: 1;
-  background: #fff; padding: 10px 2px 4px; font-size: 11px; font-weight: 600; color: var(--muted);
-  border-bottom: 1px solid var(--line);
-}
-.stm-item {
+/* スタンプパレット */
+.pal { display: flex; gap: 6px; }
+.stbtn {
+  width: 62px;
+  padding: 5px 0 4px;
+  border: 1.5px solid #dcdcdc;
+  background: #fff;
+  border-radius: 12px;
+  cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 0 5px; border: 1.5px solid #dcdcdc; background: #fff; border-radius: 12px; cursor: pointer;
+  flex-shrink: 0;
 }
-.stm-item img { width: 40px; height: 40px; display: block; }
-.stm-item span { font-size: 10px; color: #444; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.stm-item.active { border-color: #111; box-shadow: 0 0 0 1px #111; }
-.stm-item.active span { color: #111; font-weight: 600; }
+.stbtn img { width: 38px; height: 38px; display: block; }
+.stbtn span { font-size: 10px; color: #444; white-space: nowrap; }
+.stbtn.active { border-color: #111; box-shadow: 0 0 0 1px #111; }
+.stbtn.active span { color: #111; font-weight: 600; }
 
 /* テキスト編集 */
 #text-editor { position: absolute; z-index: 28; }
@@ -820,110 +802,3 @@ input[readonly], textarea[readonly] {
   -webkit-user-select: none; user-select: none;
 }
 .drag-handle:active { cursor: grabbing; background: #ddd; }
-
-/* ---------- v14: スマホのレイヤーパネル／落書きバー調整 ---------- */
-@media (max-width: 1024px) {
-  /* レイヤー一覧を広く。下のボタン類は1行ずつに圧縮 */
-  #layer-panel, #app .panel#layer-panel {
-    height: min(46vh, 400px);
-    max-height: min(46vh, 400px);
-  }
-  #layer-panel #layer-list { min-height: 150px; padding-top: 10px; }
-  #layer-panel .layer-foot { padding: 6px 12px 8px; }
-  #layer-panel .layer-foot.edit-only { flex-wrap: nowrap; gap: 6px; padding-bottom: 0; }
-  #layer-panel .layer-foot .primary-btn { width: auto; flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
-  #layer-panel .layer-foot .chip-btn { padding: 8px 10px; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
-  #layer-panel .layer-foot.backup { flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 10px; }
-  #layer-panel .layer-foot.backup::-webkit-scrollbar { display: none; }
-
-  /* 落書きバー：レイヤーと同時に開いても、画面幅の内側に収める（dock基準の絶対配置） */
-  #app.edit.panel-open #bar-draw:not(.hidden) {
-    position: absolute !important;
-    left: 8px !important;
-    right: 8px !important;
-    width: auto !important;
-    max-width: none !important;
-    box-sizing: border-box;
-    bottom: calc(100% + var(--layer-h, 0px) + 6px) !important;
-    margin: 0 !important;
-  }
-  #app.edit.panel-open #bar-draw .row, #app.edit.panel-open #bar-draw .seg { min-width: 0; max-width: 100%; }
-  #app.edit.panel-open #seg-sub { width: 100%; }
-}
-@media (max-width: 1024px) {
-  /* 固定レイヤー（ピン・赤道・回帰線）は小さく、自分のレイヤーを見やすく */
-  #layer-list .layer-item.sys { padding: 6px 10px; margin-bottom: 6px; }
-  #layer-list .layer-item.sys .eye { width: 30px; height: 30px; }
-  #layer-list .layer-item.sys .lmeta { display: none; }
-}
-@media (max-width: 1024px) {
-  #layer-list .layer-item.sys { display: inline-flex; width: calc(50% - 4px); vertical-align: top; box-sizing: border-box; }
-  #layer-list .layer-item.sys:nth-child(odd) { margin-right: 8px; }
-  #layer-list .layer-item.sys .lname-static { font-size: 12.5px; line-height: 1.25; }
-  #layer-list .layer-sep { display: block; clear: both; padding-top: 4px; }
-}
-
-/* 編集中はレイヤー名・フォルダ名の入力欄に必ず入力できるように（iOSは user-select:none だと入力できない） */
-#app.edit .layer-item input.lname {
-  -webkit-user-select: text !important;
-  user-select: text !important;
-  -webkit-touch-callout: default !important;
-  pointer-events: auto;
-}
-
-/* 気候区分 */
-.climate-zone { fill-opacity: 0.88; pointer-events: none; }
-.climate.off { display: none; }
-.clim-legend { line-height: 1.55; max-width: 100%; }
-.clim-g { font-weight: 600; color: #333; margin-right: 2px; }
-.clim-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  margin-right: 6px; font-size: 10px; color: #444;
-}
-.clim-chip i {
-  display: inline-block; width: 10px; height: 10px;
-  border-radius: 2px; border: 1px solid rgba(0,0,0,0.15);
-}
-
-/* 地図右下の凡例表（気候区分レイヤー表示時） */
-#climate-legend {
-  position: absolute;
-  right: 12px;
-  bottom: calc(var(--dock-h, 90px) + 12px);
-  z-index: 22;
-  background: rgba(255,255,255,0.94);
-  border: 1.5px solid #bbb;
-  border-radius: 8px;
-  padding: 8px 10px 10px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  pointer-events: none;
-  max-width: min(320px, calc(100vw - 24px));
-}
-#climate-legend.hidden { display: none; }
-#climate-legend .cl-title {
-  font-size: 11px; font-weight: 700; color: #222; margin-bottom: 6px; letter-spacing: 0.02em;
-}
-#climate-legend table {
-  border-collapse: collapse; font-size: 11px; color: #333; width: 100%;
-}
-#climate-legend th {
-  font-size: 10px; font-weight: 600; color: #555;
-  padding: 0 6px 4px; text-align: left; white-space: nowrap;
-}
-#climate-legend td {
-  padding: 2px 6px; white-space: nowrap; vertical-align: middle;
-}
-#climate-legend td i {
-  display: inline-block; width: 12px; height: 12px;
-  border-radius: 2px; border: 1px solid rgba(0,0,0,0.18);
-  margin-right: 4px; vertical-align: -2px;
-}
-@media (max-width: 600px) {
-  #climate-legend {
-    right: 8px;
-    bottom: calc(var(--dock-h, 90px) + 8px);
-    padding: 6px 8px 8px;
-    transform: scale(0.92);
-    transform-origin: bottom right;
-  }
-}

@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-27-v16';
+  const BUILD = '2026-11-26-v12';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -71,39 +71,6 @@
     return d;
   })();
 
-  // 歯車・星・放射能マーク・宝石（上面）などの生成パス
-  const P2 = (cx, cy, r, a) => `${fx(cx + r * Math.cos(a))} ${fx(cy + r * Math.sin(a))}`;
-  const gearPath = (() => {
-    let d = '';
-    for (let i = 0; i < 8; i++) {
-      const a = i * Math.PI / 4, ca = Math.cos(a), sa = Math.sin(a);
-      const p = (x, y) => `${fx(12 + x * ca - y * sa)} ${fx(12 + x * sa + y * ca)}`;
-      d += `M${p(-1.7, -10)}L${p(1.7, -10)}L${p(2.3, -5)}L${p(-2.3, -5)}Z`;
-    }
-    return d + C(12, 12, 7);
-  })();
-  const starPath = (() => {
-    let d = '';
-    for (let i = 0; i < 10; i++) d += (i ? 'L' : 'M') + P2(12, 12, i % 2 ? 2.7 : 6.4, -Math.PI / 2 + i * Math.PI / 5);
-    return d + 'Z';
-  })();
-  const trefoil = (() => {
-    let d = '';
-    [270, 30, 150].forEach(c0 => {
-      const a0 = (c0 - 30) * Math.PI / 180, a1 = (c0 + 30) * Math.PI / 180, R = 8.4, r = 2.8;
-      d += `M${P2(12, 12, r, a0)}L${P2(12, 12, R, a0)}A${R} ${R} 0 0 1 ${P2(12, 12, R, a1)}L${P2(12, 12, r, a1)}A${r} ${r} 0 0 0 ${P2(12, 12, r, a0)}Z`;
-    });
-    return d;
-  })();
-  const octPts = r => Array.from({ length: 8 }, (_, i) => [12 + r * Math.cos((22.5 + i * 45) * Math.PI / 180), 12 + r * Math.sin((22.5 + i * 45) * Math.PI / 180)]);
-  const octD = pts => 'M' + pts.map(q => fx(q[0]) + ' ' + fx(q[1])).join('L') + 'Z';
-  const diamondFacets = (() => {
-    const o = octPts(9.8), t = octPts(4.8);
-    let d = octD(t);
-    o.forEach((q, i) => { d += `M${fx(q[0])} ${fx(q[1])}L${fx(t[i][0])} ${fx(t[i][1])}`; });
-    return d;
-  })();
-
   const STAMPS = [
     // ---------- 農牧業 ----------
     { id: 'rice', cat: 'agri', name: 'コメ', c: '#7d8f3a', shapes: [
@@ -135,58 +102,6 @@
     { id: 'cotton', cat: 'agri', name: '綿花', c: '#8ea6b9', c2: '#5b7a4a', shapes: [
       ['f', C(8.2, 10, 4) + C(15.8, 10, 4) + C(12, 6.8, 4.2) + C(12, 12, 4.8)],
       ['f2', 'M6 14.5L9 21.5L12 18.5L15 21.5L18 14.5C15 16.8 9 16.8 6 14.5Z']] },
-    { id: 'grape', cat: 'agri', name: 'ブドウ', c: '#6b3f8a', c2: '#5b8a3c', shapes: [
-      ['f2', 'M11.3 2.5H12.7V7.5H11.3Z'],
-      ['f2', 'M12.5 4C14.5 1.8 18 2 20 4.2C17.5 6 14.5 6 12.5 5Z'],
-      ['f', C(7.5, 9, 2) + C(10.5, 9, 2) + C(13.5, 9, 2) + C(16.5, 9, 2) + C(9, 12.4, 2) + C(12, 12.4, 2) + C(15, 12.4, 2) + C(10.5, 15.8, 2) + C(13.5, 15.8, 2) + C(12, 19.2, 2)],
-      ['w', C(7, 8.4, 0.45) + C(10, 8.4, 0.45) + C(13, 8.4, 0.45) + C(16, 8.4, 0.45) + C(8.5, 11.8, 0.45) + C(11.5, 11.8, 0.45) + C(14.5, 11.8, 0.45)]] },
-    { id: 'orange', cat: 'agri', name: 'オレンジ', c: '#e8891c', c2: '#4f8a3c', shapes: [
-      ['f2', 'M12 6.5C11.5 3.8 14 2 17.5 2.6C17.2 5.4 15 7 12 6.5Z'],
-      ['f', C(12, 14, 8)],
-      ['ws', 'M6.6 15C7 18 9 20 11.6 20.4', 1],
-      ['w', C(12, 7.6, 0.9)]] },
-    { id: 'cork', cat: 'agri', name: 'コルクガシ', c: '#5f8a4a', c2: '#b07a42', shapes: [
-      ['f2', 'M10.2 11H13.8L14.6 22H9.4Z'],
-      ['ws', 'M10.6 15H13.4M10.3 18.5H13.7', 1],
-      ['f', C(7.5, 9, 4) + C(16.5, 9, 4) + C(12, 6, 4.5) + C(12, 10.5, 4.5)]] },
-    { id: 'oilpalm', cat: 'agri', name: 'アブラヤシ', c: '#3f7a3a', c2: '#d8641c', shapes: [
-      ['f', E(12, 10.5, 8.5, 1.4, 90) + E(9, 11.5, 8, 1.4, 68) + E(15, 11.5, 8, 1.4, -68) + E(8, 13, 7.2, 1.5, 56) + E(16, 13, 7.2, 1.5, -56) + E(7, 15.5, 6, 1.3, 35) + E(17, 15.5, 6, 1.3, -35)],
-      ['f2', C(10.4, 16.8, 2) + C(13.6, 16.8, 2) + C(12, 14.4, 2) + C(12, 19.2, 2)],
-      ['w', C(11.5, 14, 0.4) + C(10, 16.3, 0.4) + C(13.2, 16.3, 0.4)]] },
-    { id: 'datepalm', cat: 'agri', name: 'ナツメヤシ', c: '#4f8a4a', c2: '#a9622f', shapes: [
-      ['f2', 'M11 10.5H13L13.7 22H10.3Z'],
-      ['ws', 'M10.8 14.5H13.2M10.7 17.5H13.3M10.5 20.5H13.5', 1],
-      ['f', 'M12 8.5C14 3.5 19.5 3.5 22.5 9.5C19 6.8 15 6.8 12 9.5Z M12 8.5C10 3.5 4.5 3.5 1.5 9.5C5 6.8 9 6.8 12 9.5Z M12 8.5C10.5 5 11 3 12 1.5C13 3 13.5 5 12 8.5Z M12 9.5C16 8.5 19 10.5 20 14.5C17 12 14.5 11.5 12 11Z M12 9.5C8 8.5 5 10.5 4 14.5C7 12 9.5 11.5 12 11Z'],
-      ['k', E(10.4, 12.2, 0.8, 1.3, 0) + E(13.6, 12.2, 0.8, 1.3, 0) + E(12, 13, 0.8, 1.3, 0)]] },
-    { id: 'tea', cat: 'agri', name: '茶', c: '#4f8a3a', c2: '#9ccb62', shapes: [
-      ['f2', 'M12 21C10 15 11 8 18 3C21 10 19 17 12 21Z'],
-      ['f', 'M12 21C6 20 3 14 5 8C11 9 13.5 14 12 21Z'],
-      ['ws', 'M12 20.5C12.5 14 14.5 9 17.6 4.6M11.6 20C9.5 16 7.5 12.5 5.6 9', 1]] },
-    { id: 'potato', cat: 'agri', name: 'ジャガイモ', c: '#b88a4e', shapes: [
-      ['f', 'M3.5 13C2.5 9 7 6 12 6.5C17 6 21.5 8.5 20.5 13C20 18 15 19.5 11 19C7 18.5 4 17 3.5 13Z'],
-      ['k', C(8.5, 11, 0.7) + C(14, 10.2, 0.7) + C(11.8, 15.3, 0.7) + C(16.8, 14.2, 0.7)]] },
-    { id: 'olive', cat: 'agri', name: 'オリーブ', c: '#5f7a2c', c2: '#93aa5a', shapes: [
-      ['s', 'M3 21C8 16 13 11 20 4.5', 1.2],
-      ['f2', E(7.2, 11.2, 3.6, 1.3, -50) + E(13.2, 6.4, 3.6, 1.3, -40) + E(16.5, 12.8, 3.6, 1.3, 40) + E(10.5, 17.5, 3.6, 1.3, 35)],
-      ['f', E(14.6, 9.6, 2.1, 3, -25) + E(8.8, 14.4, 2.1, 3, -25)],
-      ['w', C(13.9, 8.6, 0.45) + C(8.1, 13.4, 0.45)]] },
-    { id: 'rubber', cat: 'agri', name: '天然ゴム', c: '#5f8f48', c2: '#8a5a3c', shapes: [
-      ['f2', 'M10 7H14V22H10Z'],
-      ['f', E(7.6, 5.4, 4.4, 1.9, -25) + E(16.4, 5.4, 4.4, 1.9, 25) + E(12, 3.8, 1.8, 3, 0)],
-      ['ws', 'M10 12L12 15.2L14 12', 1.1],
-      ['f', 'M14 16H20L19 20.5H15Z'],
-      ['w', 'M11.3 15.6H12.7V19H11.3Z']] },
-    { id: 'banana', cat: 'agri', name: 'バナナ', c: '#e3b72b', c2: '#7a8a3a', shapes: [
-      ['f2', 'M10 2H14V7H10Z'],
-      ['f', 'M11 6.5C5.5 7.5 3.5 14 6.8 20.5C7 15.5 9 11.5 12 9.8Z'],
-      ['f', 'M12 6.5C9 9.5 8.8 15.5 11.8 22C13.3 16.5 13.8 11.5 13 7Z'],
-      ['f', 'M13 6.5C18.5 7.5 20.5 14 17.2 20.5C17 15.5 15 11.5 12 9.8Z'],
-      ['ws', 'M11.4 9C10 12.5 10.2 17 11.4 20.5M13.6 9C15 12.5 15 16.5 14.6 19', 0.9]] },
-    { id: 'jute', cat: 'agri', name: 'ジュート', c: '#8fa04a', c2: '#b08a4a', shapes: [
-      ['f', 'M6.5 3L8.5 3L10 22H8Z M11 2H13V22H11Z M15.5 3L17.5 3L16 22H14Z'],
-      ['f', E(7, 7, 2.8, 1, -35) + E(17, 7, 2.8, 1, 35) + E(7.5, 17.5, 2.6, 0.9, 30) + E(16.5, 17.5, 2.6, 0.9, -30)],
-      ['f2', 'M6 11.5H18V14.8H6Z'],
-      ['ws', 'M8 11.5L10 14.8M12 11.5L14 14.8M16 11.5L18 14.8', 0.9]] },
     { id: 'dairy', cat: 'agri', name: '酪農', c: '#5f8fb5', c2: '#d9534f', shapes: [
       ['f', 'M9.5 2.5H14.5V5C14.5 6 16.5 7.5 16.5 10V20.5Q16.5 22 15 22H9Q7.5 22 7.5 20.5V10C7.5 7.5 9.5 6 9.5 5Z'],
       ['f2', 'M9 1.8H15V3.8H9Z'],
@@ -216,22 +131,6 @@
       ['f2', E(12, 15.2, 3.8, 2.9, 0)],
       ['w', C(10.6, 15.2, 0.7) + C(13.4, 15.2, 0.7)],
       ['k', C(9, 11.3, 0.9) + C(15, 11.3, 0.9)]] },
-    { id: 'goat', cat: 'agri', name: 'ヤギ', c: '#a89f91', c2: '#5a4f45', shapes: [
-      ['f2', 'M8 7C5.8 4.5 6.8 2.3 9 1.6C8.5 3.6 9.5 5 10.6 6.2Z M16 7C18.2 4.5 17.2 2.3 15 1.6C15.5 3.6 14.5 5 13.4 6.2Z'],
-      ['f', E(5.4, 10, 3.2, 1.3, -18) + E(18.6, 10, 3.2, 1.3, 18)],
-      ['f', 'M8 6.8C10 5.6 14 5.6 16 6.8C17 10.5 15.5 15 14 17.5H10C8.5 15 7 10.5 8 6.8Z'],
-      ['f2', 'M10.5 17H13.5L12 22.5Z'],
-      ['w', E(12, 15, 1.9, 1.2, 0)],
-      ['k', C(9.9, 10.8, 0.8) + C(14.1, 10.8, 0.8)]] },
-    { id: 'camel', cat: 'agri', name: 'ラクダ', c: '#c49a5a', shapes: [
-      ['f', 'M3 14.5C3 11.5 5 10 7 10.5C7.5 7 10 6.5 10.8 10C11.5 7 14 6.8 15 10.5C16 8 16.5 6 18 4.5C19 3.5 21.5 3.5 22 5V7C22 8.2 21 8.7 20 8.7C19.4 9.8 19 11 19 13V21H17V15.5H15V21H13V15.5H8.5V21H6.5V15.5H4.8C3.5 15.5 3 15.2 3 14.5Z'],
-      ['k', C(20.4, 5.6, 0.55)]] },
-    { id: 'reindeer', cat: 'agri', name: 'トナカイ', c: '#6e5a48', c2: '#b59a6a', shapes: [
-      ['f2', 'M9 8C7 6 6 4 6 1.5L7.2 1.5C7.4 3.5 8.3 5 10 6.5Z M7 5L3.5 4.6L3.8 3.4L7.3 3.8Z M7.5 3L5 1L5.8 0.4L8 2.2Z M15 8C17 6 18 4 18 1.5L16.8 1.5C16.6 3.5 15.7 5 14 6.5Z M17 5L20.5 4.6L20.2 3.4L16.7 3.8Z M16.5 3L19 1L18.2 0.4L16 2.2Z'],
-      ['f', E(6.8, 9.8, 2.5, 1.1, 20) + E(17.2, 9.8, 2.5, 1.1, -20)],
-      ['f', 'M8.5 8C10 7 14 7 15.5 8C16 12 14.5 16 13.5 19.5Q12 21 10.5 19.5C9.5 16 8 12 8.5 8Z'],
-      ['w', C(10.2, 11.6, 0.8) + C(13.8, 11.6, 0.8)],
-      ['k', C(12, 19, 1.1)]] },
 
     // ---------- 工業 ----------
     { id: 'plane', cat: 'ind', name: '航空機', c: '#3b5b7a', shapes: [
@@ -257,41 +156,12 @@
       ['s', 'M18 18C20 20 22 19.5 22.5 18', 1.3],
       ['f', C(11.5, 12, 8)],
       ['ws', 'M4.8 9C9.5 12 14.5 12 18.6 9M4.2 13C9.5 16 15 16 18.8 13M8 4.6C10 9 10 15 8 19.4', 1]] },
-    { id: 'silk-ind', cat: 'ind', name: '絹工業', c: '#b0527a', c2: '#6a3a55', shapes: [
-      ['s', 'M12 4C13 2 16 1.5 18.5 3', 1.2],
-      ['f', E(12, 13, 6, 8.5, 0)],
-      ['ws', 'M7 9.5C10 11.5 14 11.5 17 9.5M6.2 13.5C10 15.5 14 15.5 17.8 13.5M7.6 17.4C10 19 14 19 16.4 17.4', 1]] },
     { id: 'petro', cat: 'ind', name: '石油化学', c: '#7a3b3b', shapes: [
       ['f', 'M9.5 2.5H14.5V4.2H13.5V9.2L19.7 18.6C20.6 20 19.6 21.8 18 21.8H6C4.4 21.8 3.4 20 4.3 18.6L10.5 9.2V4.2H9.5Z'],
       ['ws', 'M6.4 16H17.6', 1.1],
       ['w', C(11, 18.8, 0.9) + C(13.6, 17.6, 0.7)]] },
     { id: 'steel', cat: 'ind', name: '鉄鋼', c: '#5a6068', shapes: [
       ['f', 'M4 4H20V8H14V16H20V20H4V16H10V8H4Z']] },
-    { id: 'ship', cat: 'ind', name: '造船', c: '#2f5a7a', c2: '#c0583f', shapes: [
-      ['f2', 'M14.5 4.5H16.8V8H14.5Z M4.5 9.5H11V13.5H4.5Z'],
-      ['f', 'M12.5 7.5H19V14H12.5Z'],
-      ['f', 'M2 14.5H22L19.5 20H5Z'],
-      ['ws', 'M6.5 11.5H9M14.5 10H17', 1.2]] },
-    { id: 'machine', cat: 'ind', name: '機械', c: '#566471', shapes: [
-      ['f', gearPath],
-      ['w', C(12, 12, 2.8)]] },
-    { id: 'food-ind', cat: 'ind', name: '食品工業', c: '#d98a3a', c2: '#aeb4b9', shapes: [
-      ['f2', 'M5 5.5Q5 4 7 4H17Q19 4 19 5.5V7.5H5Z'],
-      ['f', 'M5 7.5H19V19.5Q19 21 17 21H7Q5 21 5 19.5Z'],
-      ['w', 'M5 10.8H19V16.8H5Z'],
-      ['f2', E(12, 13.8, 1.3, 2, 0) + 'M12 11.5C13.2 10.2 14.5 10.2 15.5 11C14.6 12.2 13.4 12.4 12 11.5Z']] },
-    { id: 'paper', cat: 'ind', name: '製紙・パルプ', c: '#8a7a5a', c2: '#54442f', shapes: [
-      ['f', 'M5.5 2H15L19.5 6.5V22H5.5Z'],
-      ['f2', 'M15 2V6.5H19.5Z'],
-      ['ws', 'M8.5 11H16.5M8.5 14.5H16.5M8.5 18H13.5', 1.1]] },
-    { id: 'semicon', cat: 'ind', name: '半導体', c: '#4a5a8a', c2: '#a9b5dc', shapes: [
-      ['f', C(12, 12, 9.8)],
-      ['f2', 'M8 8H12V12H8Z M12 12H16V16H12Z M16 8H19.4V12H16Z'],
-      ['ws', 'M8 3.4V20.6M12 2.2V21.8M16 3.4V20.6M4.6 8H19.4M3 12H21M4.6 16H19.4', 0.8]] },
-    { id: 'chemfiber', cat: 'ind', name: '化学繊維', c: '#2a8a8a', shapes: [
-      ['f', 'M12 2.5L20.2 7.2V16.8L12 21.5L3.8 16.8V7.2Z'],
-      ['w', 'M12 6.6L16.6 9.3V14.7L12 17.4L7.4 14.7V9.3Z'],
-      ['f', 'M12 10L14 11.2V13.4L12 14.6L10 13.4V11.2Z']] },
 
     // ---------- 鉱産資源 ----------
     { id: 'oil', cat: 'min', name: '油田', c: '#1a1a1a', shapes: [
@@ -321,86 +191,14 @@
       ['ws', 'M9.6 6.6V19', 1]] },
     { id: 'rare', cat: 'min', name: 'レアメタル', c: '#6a5fb0', shapes: [
       ['f', 'M7 4H17L21.5 10L12 21L2.5 10Z'],
-      ['ws', 'M2.5 10H21.5M7 4L9.5 10L12 21L14.5 10L17 4M9.5 10L12 4L14.5 10', 1]] },
-    { id: 'uranium', cat: 'min', name: 'ウラン', c: '#d4b422', shapes: [
-      ['f', C(12, 12, 10.5)],
-      ['k', trefoil + C(12, 12, 1.8)]] },
-    { id: 'bauxite', cat: 'min', name: 'ボーキサイト', c: '#a8452c', c2: '#7a2f20', shapes: [
-      ['f', C(8.2, 15, 4.8) + C(16.2, 15.6, 4.3) + C(12, 8.6, 4.8)],
-      ['f2', C(6.8, 14, 0.9) + C(10, 16.4, 0.7) + C(15.4, 14.6, 0.8) + C(17.6, 17, 0.6) + C(11, 7.6, 0.8) + C(13.2, 9.8, 0.6)]] },
-    { id: 'silver', cat: 'min', name: '銀', c: '#9aa4ad', shapes: [
-      ['f', C(12, 12, 10.3)],
-      ['ws', C(12, 12, 8), 0.9],
-      ['w', starPath]] },
-    { id: 'tin', cat: 'min', name: 'スズ', c: '#7f8f8a', c2: '#aebdb7', shapes: [
-      ['f', 'M3 18L5.8 10H18.2L21 18Z'],
-      ['f2', 'M5.8 10L8 6.5H16L18.2 10Z'],
-      ['ws', 'M8.5 14H15.5', 1.2]] },
-    { id: 'nickel', cat: 'min', name: 'ニッケル', c: '#4f8f87', c2: '#8fc7bf', shapes: [
-      ['f2', 'M12 3L20 7.5L12 12L4 7.5Z'],
-      ['f', 'M4 7.5L12 12V21L4 16.5Z M20 7.5V16.5L12 21V12Z'],
-      ['ws', 'M4 7.5L12 12L20 7.5M12 12V21', 1]] },
-    { id: 'zinc', cat: 'min', name: '亜鉛', c: '#7d98ae', c2: '#566f85', shapes: [
-      ['s', 'M7 5.5C8 1 16 1 17 5.5', 1.4],
-      ['f2', 'M3.8 5H20.2V7.8H3.8Z'],
-      ['f', 'M5 7.8H19L17.6 21H6.4Z'],
-      ['ws', 'M5.5 12.2H18.5M5.9 16.6H18.1', 1]] },
-    { id: 'lead', cat: 'min', name: '鉛', c: '#62687a', shapes: [
-      ['s', 'M9.4 9C9.4 3.5 14.6 3.5 14.6 9', 1.8],
-      ['f', 'M7 9H17L20.5 21H3.5Z'],
-      ['w', C(12, 14.2, 1.6)]] },
-    { id: 'diamond', cat: 'min', name: 'ダイヤモンド', c: '#4fb0d8', shapes: [
-      ['f', octD(octPts(9.8))],
-      ['ws', diamondFacets, 0.9]] },
-
-    // ---------- 林業・水産業 ----------
-    { id: 'timber', cat: 'forest', name: '木材', c: '#9c6a3e', c2: '#dcb47e', shapes: [
-      ['f', C(7.5, 16.5, 4.6) + C(16.5, 16.5, 4.6) + C(12, 8.8, 4.6)],
-      ['f2', C(7.5, 16.5, 3.4) + C(16.5, 16.5, 3.4) + C(12, 8.8, 3.4)],
-      ['ws', C(7.5, 16.5, 1.5) + C(16.5, 16.5, 1.5) + C(12, 8.8, 1.5), 0.8]] },
-    { id: 'fishing', cat: 'forest', name: '漁業', c: '#3a7aa8', shapes: [
-      ['f', E(10.5, 12, 7.5, 4.6, 0) + 'M16.5 12L23 7V17Z'],
-      ['ws', 'M10 8.4C11.5 10 11.5 14 10 15.6', 1],
-      ['w', C(6.8, 11, 1.1)],
-      ['k', C(6.8, 11, 0.5)]] },
-    { id: 'aqua', cat: 'forest', name: '養殖', c: '#e0733a', c2: '#5a8fb5', shapes: [
-      ['f2', 'M3 4.5H21V6.8H3Z'],
-      ['f2', 'M4.6 6.8H19.4L17.4 21H6.6Z'],
-      ['ws', 'M8.6 7V21M12 7V21M15.4 7V21M4.9 11.2H19.1M5.6 16H18.4', 0.7],
-      ['f', E(11.6, 13.2, 3.9, 2.3, 0) + 'M15.2 13.2L18.2 10.8V15.6Z'],
-      ['w', C(9.6, 12.6, 0.6)]] },
-
-    // ---------- エネルギー ----------
-    { id: 'hydro', cat: 'energy', name: '水力', c: '#2f7fb0', shapes: [
-      ['f', 'M3 5H21V8H19.5L18 21H6L4.5 8H3Z'],
-      ['ws', 'M7.2 12.4C9 11.2 10.2 13.4 12 12.2C13.8 11 15 13.2 16.8 12M7.6 16.8C9.4 15.6 10.6 17.8 12.4 16.6C13.8 15.8 15 16.6 16.4 16.4', 1.2]] },
-    { id: 'wind', cat: 'energy', name: '風力', c: '#3f8f8f', c2: '#6a7a85', shapes: [
-      ['f2', 'M11.2 11H12.8L13.5 22H10.5Z'],
-      ['f', E(12, 5.2, 4.8, 1.1, 90) + E(7.84, 12.4, 4.8, 1.1, 150) + E(16.16, 12.4, 4.8, 1.1, 30)],
-      ['f2', C(12, 10, 1.4)]] },
-    { id: 'solar', cat: 'energy', name: '太陽光', c: '#2f4f8a', c2: '#e8a820', shapes: [
-      ['f2', C(6.8, 6.4, 3.4)],
-      ['f', 'M5.5 21L9 11H22.5L19 21Z'],
-      ['ws', 'M6.8 16H20.7M12.2 11L9 21M17.4 11L14.2 21', 0.8]] },
-    { id: 'geo', cat: 'energy', name: '地熱', c: '#8a4a3a', c2: '#e0702a', shapes: [
-      ['s', 'M9.8 8.6C7.8 6.6 11.6 4.8 9.6 2.4M14.2 8.6C12.2 6.6 16 4.8 14 2.4', 1.3],
-      ['f', 'M2.5 21L8.5 10.5H15.5L21.5 21Z'],
-      ['f2', 'M8.5 10.5H15.5L14.6 12.4L13 11.4L12 13.6L11 11.4L9.4 12.4Z']] },
-    { id: 'nuclear', cat: 'energy', name: '原子力', c: '#2f7f8f', shapes: [
-      ['s', E(12, 12, 9.5, 3.8, 0) + E(12, 12, 9.5, 3.8, 60) + E(12, 12, 9.5, 3.8, 120), 1.2],
-      ['f', C(12, 12, 2.3)]] }
+      ['ws', 'M2.5 10H21.5M7 4L9.5 10L12 21L14.5 10L17 4M9.5 10L12 4L14.5 10', 1]] }
   ];
-  // 投げ縄で敷き詰められるスタンプのカテゴリ
-  const LASSO_CATS = new Set(['agri', 'forest']);
-  const stampLasso = st => LASSO_CATS.has(st.cat);
   const STAMP_BY = {};
   STAMPS.forEach(s => { STAMP_BY[s.id] = s; });
   const CATS = [
     { id: 'agri', name: '農牧業' },
     { id: 'ind',  name: '工業' },
-    { id: 'min',  name: '鉱産資源' },
-    { id: 'forest', name: '林業・水産' },
-    { id: 'energy', name: 'エネルギー' }
+    { id: 'min',  name: '鉱産資源' }
   ];
 
   const spriteCache = {};
@@ -451,7 +249,6 @@
     sizeT: { pen: 66, text: 68, stamp: 70 },
     stamp: 'rice',
     stampCat: 'agri',
-    stampPicked: false,      // スタンプを選ぶまでは未選択（置けない）
     stampMode: 'tap',        // tap | lasso
     lassoKey: null,
     lassoScope: 'country',   // country | all
@@ -478,8 +275,7 @@
     k0: 1,
     undo: [],
     redo: [],
-    showRivers: true,
-    showClimate: false
+    showRivers: true
   };
 
   const $ = id => document.getElementById(id);
@@ -525,7 +321,7 @@
   const sizeKey = () => (state.sub === 'text' ? 'text' : 'pen');
   const stampSizeVal = () => STAMP_SIZES[state.stampSize] || STAMP_SIZES.M;
   const sizeVal = key => { const r = SIZE[key]; return r.min * Math.pow(r.max / r.min, state.sizeT[key] / 100); };
-  const lassoActive = () => state.sub === 'lasso' || (state.sub === 'stamp' && stampLasso(stampDef()) && state.stampMode === 'lasso');
+  const lassoActive = () => state.sub === 'lasso' || (state.sub === 'stamp' && stampDef().cat === 'agri' && state.stampMode === 'lasso');
   const needTarget = () => lassoActive() && state.lassoScope === 'country';
 
   function showToast(msg) {
@@ -583,7 +379,7 @@
     clearTimeout(saveTimer);
     try {
       localStorage.setItem(KEY, JSON.stringify({
-        v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
+        v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers
       }));
       if (sync.on) markDirty();
     } catch {
@@ -675,7 +471,6 @@
     }
     state.activeLayerId = state.layers.some(l => l.id === state.activeLayerId) ? state.activeLayerId : state.layers[0].id;
     if (typeof d.showRivers === 'boolean') state.showRivers = d.showRivers;
-    if (typeof d.showClimate === 'boolean') state.showClimate = d.showClimate;
     state.folders = (Array.isArray(d.folders) ? d.folders : []).map(f => ({
       id: f.id || 'FD' + uid(), name: f.name || 'フォルダ', open: f.open !== false, visible: f.visible !== false
     }));
@@ -796,47 +591,7 @@
     return out;
   }
 
-
-  /* ---------- ケッペン気候区分（固定レイヤー） ---------- */
-  // 参照図に近い配色（教科書的な簡略色）
-  // 参照図の凡例13色に揃える（細分コードは親区分色へ）
-  const CLIMATE_SIMPLE = {
-    Af: '#e53935', Am: '#ef9a9a', Aw: '#f5c6c6',
-    BW: '#c4a574', BS: '#f0d84a',
-    Cs: '#f5a623', Cw: '#7ec8c8', Cfa: '#a8e6a1', Cfb: '#4caf50',
-    Df: '#c5a3d9', Dw: '#7b5ea7',
-    ET: '#7dd3e8', EF: '#3d8fd1'
-  };
-  function climateColor(code) {
-    const c = String(code || '');
-    if (CLIMATE_SIMPLE[c]) return CLIMATE_SIMPLE[c];
-    if (c.startsWith('Af')) return CLIMATE_SIMPLE.Af;
-    if (c.startsWith('Am')) return CLIMATE_SIMPLE.Am;
-    if (c.startsWith('As') || c.startsWith('Aw')) return CLIMATE_SIMPLE.Aw;
-    if (c.startsWith('BW') || c === 'BWh' || c === 'BWk') return CLIMATE_SIMPLE.BW;
-    if (c.startsWith('BS') || c === 'BSh' || c === 'BSk') return CLIMATE_SIMPLE.BS;
-    if (c.startsWith('Cs')) return CLIMATE_SIMPLE.Cs;
-    if (c.startsWith('Cw')) return CLIMATE_SIMPLE.Cw;
-    if (c === 'Cfa') return CLIMATE_SIMPLE.Cfa;
-    if (c.startsWith('Cf')) return CLIMATE_SIMPLE.Cfb;
-    if (c.startsWith('Df') || c.startsWith('Ds')) return CLIMATE_SIMPLE.Df; // Ds→亜寒帯系はDf色
-    if (c.startsWith('Dw')) return CLIMATE_SIMPLE.Dw;
-    if (c === 'ET') return CLIMATE_SIMPLE.ET;
-    if (c === 'EF') return CLIMATE_SIMPLE.EF;
-    return '#cccccc';
-  }
-  const CLIMATE_COLORS = CLIMATE_SIMPLE; // 後方互換
-  // レイヤー説明用（参照図と同じ区分）
-  const CLIMATE_LEGEND = [
-    { g: '熱帯', items: [['Af','#e53935'],['Am','#ef9a9a'],['Aw','#f5c6c6']] },
-    { g: '乾燥帯', items: [['BW','#c4a574'],['BS','#f0d84a']] },
-    { g: '温帯', items: [['Cs','#f5a623'],['Cw','#7ec8c8'],['Cfa','#a8e6a1'],['Cfb','#4caf50']] },
-    { g: '亜寒帯', items: [['Df','#c5a3d9'],['Dw','#7b5ea7']] },
-    { g: '寒帯', items: [['ET','#7dd3e8'],['EF','#3d8fd1']] }
-  ];
-  let climateFeats = [];
-
-  function prepareData(countries, rivers, lakes, climate) {
+  function prepareData(countries, rivers, lakes) {
     feats = splitTaiwan(countries.features || []).map(f => {
       const p = f.properties || {};
       f._key = keyOf(p);
@@ -852,15 +607,6 @@
     feats.forEach(f => byKey.set(f._key, f));
     riverFeats = (rivers.features || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
     lakeFeats = ((lakes && lakes.features) || []).map(f => { f._d = pathGen(f) || ''; return f; }).filter(f => f._d);
-    climateFeats = [];
-    if (climate && climate.features) {
-      climateFeats = climate.features.map(f => {
-        const code = (f.properties && (f.properties.CODE || f.properties.code || f.properties.GRIDCODE)) || '';
-        const d = pathGen(f) || '';
-        if (!d || !code) return null;
-        return { code: String(code), _d: d, color: climateColor(code) };
-      }).filter(Boolean);
-    }
   }
 
   function buildMap() {
@@ -872,13 +618,6 @@
     bw.append('g').attr('class', 'land')
       .selectAll('path').data(feats).join('path')
       .attr('class', 'country').attr('d', d => d._d);
-    // 気候区分（固定レイヤー・地図投影は共通のまま）
-    bw.append('g').attr('class', 'climate' + (state.showClimate ? '' : ' off'))
-      .selectAll('path').data(climateFeats).join('path')
-      .attr('class', 'climate-zone')
-      .attr('d', d => d._d)
-      .attr('fill', d => d.color)
-      .attr('stroke', 'none');
     bw.append('g').attr('class', 'lakes')
       .selectAll('path').data(lakeFeats).join('path')
       .attr('class', 'lake').attr('d', d => d._d);
@@ -924,11 +663,6 @@
     svgPins.selectAll('*').remove();
     svgPins.append('g').attr('class', 'notes');
     svgPins.append('g').attr('class', 'pins');
-  }
-
-  function updateClimateLegend() {
-    const el = $('climate-legend');
-    if (el) el.classList.toggle('hidden', !state.showClimate);
   }
 
   function applyGuides() {
@@ -1575,7 +1309,6 @@
 
   // 農牧業スタンプを等間隔・密集（ずらし配置）で敷き詰める。対象の国の陸地の内側だけ
   function stampFill(layer, keys, poly) {
-    if (!state.stampPicked) { showToast('スタンプを選んでください'); return; }
     const st = stampDef(), size = stampSizeVal();
     const fs = keys.map(k => byKey.get(k)).filter(Boolean);
     if (!fs.length) return;
@@ -1690,9 +1423,8 @@
   function placeStamp(sx, sy) {
     const layer = drawable();
     if (!layer) return;
-    if (!state.stampPicked) { showToast('スタンプを選んでください'); return; }
     const st = stampDef();
-    const top = !stampLasso(st) && state.overPin;     // 工業・鉱産：ピン（都市）の上に半透明で重ねる（切替可）
+    const top = st.cat !== 'agri' && state.overPin;     // 工業・鉱産：ピン（都市）の上に半透明で重ねる（切替可）
     let m = toMap(sx, sy);
     if (top) {
       const pin = pinAt(sx, sy);
@@ -2159,8 +1891,7 @@
     { id: 'pins', name: 'ピン' },
     { id: 'equator', name: '赤道' },
     { id: 'tropics', name: '南回帰線と北回帰線' },
-    { id: 'rivers', name: '河川' },
-    { id: 'climate', name: '気候区分' }
+    { id: 'rivers', name: '河川' }
   ];
 
   function renderLayers() {
@@ -2169,24 +1900,15 @@
     list.innerHTML = '';
 
     SYS_LAYERS.forEach(sl => {
-      const on = sl.id === 'rivers' ? state.showRivers
-        : sl.id === 'climate' ? state.showClimate
-        : state.guides[sl.id];
+      const on = sl.id === 'rivers' ? state.showRivers : state.guides[sl.id];
       const div = document.createElement('div');
       div.className = 'layer-item sys' + (on ? '' : ' off');
       div.dataset.sys = sl.id;
       let meta = '';
       if (sl.id === 'pins') meta = `ピン <b>${state.pins.length}</b> 件`;
-      if (sl.id === 'climate') {
-        meta = CLIMATE_LEGEND.map(g =>
-          `<span class="clim-g">${g.g}</span> ` + g.items.map(([c, col]) =>
-            `<span class="clim-chip"><i style="background:${col}"></i>${c}</span>`
-          ).join('')
-        ).join(' ');
-      }
       div.innerHTML = `
         <button class="eye ${on ? '' : 'off'}" data-act="sys-eye" title="${on ? '非表示' : '表示'}" aria-label="表示切替">${on ? ICON.eye : ICON.eyeOff}</button>
-        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div>${meta ? `<div class="lmeta clim-legend">${meta}</div>` : ''}</div>`;
+        <div class="lbody"><div class="lname-static" style="font-weight:600">${esc(sl.name)}</div>${meta ? `<div class="lmeta">${meta}</div>` : ''}</div>`;
       list.appendChild(div);
     });
 
@@ -2319,10 +2041,6 @@
         if (sid === 'rivers') {
           state.showRivers = !state.showRivers;
           svgLines.select('.rivers').classed('off', !state.showRivers);
-        } else if (sid === 'climate') {
-          state.showClimate = !state.showClimate;
-          svgBase.select('.climate').classed('off', !state.showClimate);
-          updateClimateLegend();
         } else {
           state.guides[sid] = !state.guides[sid];
           applyGuides();
@@ -2337,9 +2055,6 @@
     const id = item.dataset.id;
     const btn = e.target.closest('button');
     const act = btn && btn.dataset.act;
-
-    // 名前の入力欄をタップした時は再描画しない（再描画すると入力欄が作り直されて、キーボードが開かず名前を変更できない）
-    if (state.edit && e.target.classList && e.target.classList.contains('lname')) return;
 
     if (kind === 'folder') {
       const folder = folderById(id);
@@ -2440,7 +2155,6 @@
       document.removeEventListener('touchmove', ld._blockTouch, { passive: false });
       ld._blockTouch = null;
     }
-    if (ld.rafId) { cancelAnimationFrame(ld.rafId); ld.rafId = 0; }       // 自動スクロール停止
     if (ld.ghost && ld.ghost.parentNode) ld.ghost.parentNode.removeChild(ld.ghost);
     const list = $('layer-list');
     if (list) {
@@ -2561,32 +2275,6 @@
     ld.ghost.style.left = x + 'px';
     ld.ghost.style.top = y + 'px';
     try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
-    startAutoScroll();
-  }
-
-  /* ドラッグ中の自動スクロール：指が一覧の上端／下端に来たら一定速度でスクロール、離れたら即停止 */
-  const AS_EDGE = 48;        // 端と判定する幅(px)
-  const AS_SPEED = 420;      // スクロール速度(px/秒)・常に一定
-  function startAutoScroll() {
-    if (!ld) return;
-    let last = performance.now();
-    const tick = now => {
-      if (!ld || !ld.ready) return;
-      const dt = Math.min(now - last, 50) / 1000;
-      last = now;
-      const list = $('layer-list');
-      if (list) {
-        const r = list.getBoundingClientRect(), y = ld._ly;
-        const dir = y <= r.top + AS_EDGE ? -1 : (y >= r.bottom - AS_EDGE ? 1 : 0);
-        if (dir) {
-          const before = list.scrollTop;
-          list.scrollTop = before + dir * AS_SPEED * dt;
-          if (list.scrollTop !== before) moveDrag(ld._lx, ld._ly);        // 動いた分、挿入位置を更新（レイヤーは指に追従）
-        }
-      }
-      ld.rafId = requestAnimationFrame(tick);
-    };
-    ld.rafId = requestAnimationFrame(tick);
   }
 
   function moveDrag(x, y) {
@@ -2842,83 +2530,26 @@
       b.onclick = () => {
         state.stampCat = c.id;
         if (stampDef().cat !== c.id) state.stamp = STAMPS.find(s => s.cat === c.id).id;
-        if (!LASSO_CATS.has(c.id)) state.stampMode = 'tap';
+        if (c.id !== 'agri') state.stampMode = 'tap';
         state.lassoKey = null;
         renderStampPal(); updateUI(); renderHighlight();
       };
       seg.appendChild(b);
     });
     renderStampPal();
-    setupStampMenu();
   }
 
-  // --- スタンプ選択ボタン＋候補メニュー ---
   function renderStampPal() {
-    const btn = $('btn-stamp-pick');
-    if (!btn) return;
-    if (state.stampPicked) {
-      const st = stampDef();
-      btn.classList.remove('empty');
-      btn.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
-    } else {
-      btn.classList.add('empty');
-      btn.innerHTML = `<span class="stpick-none">スタンプ未選択</span>`;
-    }
-    btn.classList.toggle('open', !$('stamp-menu').classList.contains('hidden'));
-  }
-
-  function closeStampMenu() {
-    $('stamp-menu').classList.add('hidden');
-    $('stamp-backdrop').classList.add('hidden');
-    renderStampPal();
-  }
-
-  function openStampMenu() {
-    const menu = $('stamp-menu'), back = $('stamp-backdrop'), btn = $('btn-stamp-pick');
-    menu.innerHTML = '';
-    CATS.forEach(c => {
-      const h = document.createElement('div');
-      h.className = 'stm-head'; h.textContent = c.name;
-      menu.appendChild(h);
-      STAMPS.filter(st => st.cat === c.id).forEach(st => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'stm-item' + (state.stampPicked && st.id === state.stamp ? ' active' : '');
-        b.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
-        b.onclick = () => {
-          state.stamp = st.id; state.stampCat = st.cat; state.stampPicked = true;
-          if (!LASSO_CATS.has(st.cat)) state.stampMode = 'tap';
-          state.lassoKey = null;
-          closeStampMenu(); updateUI(); renderHighlight();
-        };
-        menu.appendChild(b);
-      });
+    const pal = $('stamp-pal');
+    pal.innerHTML = '';
+    STAMPS.filter(s => s.cat === state.stampCat).forEach(st => {
+      const b = document.createElement('button');
+      b.className = 'stbtn' + (st.id === state.stamp ? ' active' : '');
+      b.dataset.id = st.id;
+      b.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
+      b.onclick = () => { state.stamp = st.id; renderStampPal(); updateUI(); };
+      pal.appendChild(b);
     });
-    back.classList.remove('hidden');
-    menu.classList.remove('hidden');
-    // ボタンの下（足りなければ上）に配置。地図の表示位置には触れない
-    const r = btn.getBoundingClientRect(), vh = window.innerHeight, gap = 8;
-    const below = vh - r.bottom - gap - 12, above = r.top - gap - 12;
-    menu.style.top = menu.style.bottom = '';
-    if (below >= 260 || below >= above) { menu.style.top = (r.bottom + gap) + 'px'; menu.style.maxHeight = Math.max(160, below) + 'px'; }
-    else { menu.style.bottom = (vh - r.top + gap) + 'px'; menu.style.maxHeight = Math.max(160, above) + 'px'; }
-    const left = Math.max(12, Math.min(r.left, window.innerWidth - menu.offsetWidth - 12));
-    menu.style.left = left + 'px';
-    const act = menu.querySelector('.stm-item.active');
-    if (act) menu.scrollTop = Math.max(0, act.offsetTop - menu.clientHeight / 2 + 40);
-    else menu.scrollTop = 0;
-    renderStampPal();
-  }
-
-  function setupStampMenu() {
-    $('btn-stamp-pick').onclick = () => { $('stamp-menu').classList.contains('hidden') ? openStampMenu() : closeStampMenu(); };
-    const back = $('stamp-backdrop');
-    // 背景は押下を地図へ渡さず、離した時（click）に閉じる。押下時には閉じない（下の地図に click が抜けるのを防ぐ）
-    ['pointerdown', 'pointerup', 'touchstart', 'wheel'].forEach(t => back.addEventListener(t, e => e.stopPropagation(), { passive: true }));
-    back.addEventListener('click', e => { e.stopPropagation(); closeStampMenu(); });
-    ['pointerdown', 'wheel'].forEach(t => $('stamp-menu').addEventListener(t, e => e.stopPropagation()));
-    window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('stamp-menu').classList.contains('hidden')) closeStampMenu(); });
-    window.addEventListener('resize', () => { if (!$('stamp-menu').classList.contains('hidden')) closeStampMenu(); });
   }
 
   function updateSizePreview() {
@@ -2954,7 +2585,7 @@
       case 'note': return 'メモ — 地図をタップして小さなメモを追加／メモのボタンをタップして読む・編集';
       case 'stamp':
         if (lassoActive()) return lassoMsg('スタンプ') + '・敷き詰め';
-        return stampLasso(stampDef()) ? 'スタンプ — 地図をタップして押す'
+        return stampDef().cat === 'agri' ? 'スタンプ — 地図をタップして押す'
           : (state.overPin ? 'スタンプ — タップ（ピンの近くならピンの上に半透明で）' : 'スタンプ — 地図をタップして置く');
     }
     return '';
@@ -2980,7 +2611,7 @@
     $('view-pin').classList.toggle('active', state.viewTarget === 'pin');
     $('view-country').classList.toggle('active', state.viewTarget === 'country');
 
-    const s = state.sub, agri = stampLasso(stampDef());
+    const s = state.sub, agri = stampDef().cat === 'agri';
     const show = (id, v) => $(id).classList.toggle('hidden', !v);
     const lassoOn = lassoActive();
     const scopeCountry = state.lassoScope === 'country';
@@ -2992,6 +2623,7 @@
     show('opt-eraser', s === 'eraser');
     show('opt-text', s === 'text');
     show('opt-stamp', s === 'stamp');
+    show('opt-stamp-pal', s === 'stamp');
     show('seg-stampmode', s === 'stamp' && agri);
     show('btn-overpin', s === 'stamp' && !agri);
     show('opt-target', lassoOn);
@@ -3355,7 +2987,7 @@
     let ok = false;
     try {
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
-      const str = JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate })
+      const str = JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers })
         .replace(/[\u007f-￿]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
       const n = Math.max(1, Math.ceil(str.length / SYNC_CH));
       const rev = Math.max(Date.now(), sync.rev + 1);
@@ -3391,7 +3023,7 @@
       if (['pin', 'country', 'note'].includes(state.panel)) setPanel(null);
       state.undo.length = 0; state.redo.length = 0;
       applyData(d);
-      lsSet(KEY, JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate }));
+      lsSet(KEY, JSON.stringify({ v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers }));
       sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
       if (dataReady) {
         applyGuides(); renderFills(); renderMemoMarks(); renderPins(); renderNotes(); redraw(); updateUI();
@@ -3542,14 +3174,12 @@
     updateUI();
     try {
       const base = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
-      const climateUrl = 'https://cdn.jsdelivr.net/gh/circleofconfusion/climate-map@master/topojson/1976-2000.geojson';
-      const [countries, rivers, lakes, climate] = await Promise.all([
+      const [countries, rivers, lakes] = await Promise.all([
         loadGeoCached(base + 'ne_50m_admin_0_countries.geojson', 'ne50-countries-v1'),
         loadGeoCached(base + 'ne_50m_rivers_lake_centerlines.geojson', 'ne50-rivers-v1'),
-        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes-v1').catch(() => null),
-        loadGeoCached(climateUrl, 'koppen-1976-2000-v1').catch(err => { console.warn('climate load failed', err); return null; })
+        loadGeoCached(base + 'ne_50m_lakes.geojson', 'ne50-lakes-v1').catch(() => null)
       ]);
-      prepareData(countries, rivers, lakes, climate);
+      prepareData(countries, rivers, lakes);
     } catch (err) {
       console.error(err);
       $('loading').textContent = '地図データの読み込みに失敗しました。通信状況を確認して再読み込みしてください。';
@@ -3564,7 +3194,6 @@
     renderNotes();
     applyTf();
     $('loading').classList.add('hidden');
-    updateClimateLegend();
     initSync();
     setTimeout(checkUpdate, 4000);
     setInterval(checkUpdate, 5 * 60 * 1000);
