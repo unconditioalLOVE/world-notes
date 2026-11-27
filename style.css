@@ -605,7 +605,7 @@ input[readonly], textarea[readonly] {
 }
 
 /* スタンプパレット */
-.pal { display: flex; gap: 6px; }
+.pal { display: flex; flex-wrap: wrap; gap: 6px; }
 .stbtn {
   width: 62px;
   padding: 5px 0 4px;
