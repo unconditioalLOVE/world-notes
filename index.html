@@ -88,6 +88,7 @@
 
         <!-- スタンプ -->
         <div class="row opt hidden wrap" id="opt-stamp">
+          <button id="btn-stamp-pick" class="stpick empty" type="button" aria-haspopup="listbox" title="スタンプを選ぶ"></button>
           <div class="seg" id="seg-cat"></div>
           <div class="seg" id="seg-stampmode">
             <button data-sm="tap">タップ</button>
@@ -99,9 +100,6 @@
             <button data-sz="L">大</button>
           </div>
           <button id="btn-overpin" class="toggle" title="オンにすると、ピン（都市）の近くをタップした時にピンの上へ半透明で重ねます">ピンに重ねる</button>
-        </div>
-        <div class="row opt hidden" id="opt-stamp-pal">
-          <div id="stamp-pal" class="pal"></div>
         </div>
 
         <!-- 投げ縄の範囲 -->
@@ -341,8 +339,46 @@
     </div>
 
     <div id="update-bar" class="hidden"><span>新しいバージョンがあります</span><button id="btn-update">更新</button></div>
+    <div id="climate-legend" class="hidden" aria-label="気候区分の凡例">
+      <div class="cl-title">気候区分</div>
+      <table>
+        <thead><tr><th>熱帯</th><th>乾燥帯</th><th>温帯</th><th>亜寒帯</th><th>寒帯</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><i style="background:#e53935"></i>Af</td>
+            <td><i style="background:#c4a574"></i>BW</td>
+            <td><i style="background:#f5a623"></i>Cs</td>
+            <td><i style="background:#c5a3d9"></i>Df</td>
+            <td><i style="background:#7dd3e8"></i>ET</td>
+          </tr>
+          <tr>
+            <td><i style="background:#ef9a9a"></i>Am</td>
+            <td><i style="background:#f0d84a"></i>BS</td>
+            <td><i style="background:#7ec8c8"></i>Cw</td>
+            <td><i style="background:#7b5ea7"></i>Dw</td>
+            <td><i style="background:#3d8fd1"></i>EF</td>
+          </tr>
+          <tr>
+            <td><i style="background:#f5c6c6"></i>Aw</td>
+            <td></td>
+            <td><i style="background:#a8e6a1"></i>Cfa</td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td></td>
+            <td></td>
+            <td><i style="background:#4caf50"></i>Cfb</td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div id="toast" class="hidden"></div>
   </div>
+  <div id="stamp-backdrop" class="hidden"></div>
+  <div id="stamp-menu" class="hidden" role="listbox" aria-label="スタンプ一覧"></div>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
