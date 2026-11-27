@@ -2239,6 +2239,8 @@
     ['layer', 'pin', 'country', 'note', 'sync'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
     $('app').classList.toggle('panel-open', !!name);
     $('btn-layers').classList.toggle('active', name === 'layer');
+    const bAcc = $('btn-account');
+    if (bAcc) bAcc.classList.toggle('active', name === 'sync');
     if (name === 'layer') renderLayers();
     syncDock();
   }
@@ -3285,6 +3287,11 @@
 
     $('btn-layers').onclick = toggleLayerPanel;
     $('btn-close-layers').onclick = () => setPanel(null);
+    const btnAccount = $('btn-account');
+    if (btnAccount) btnAccount.onclick = () => {
+      if (state.panel === 'sync') setPanel(null);
+      else { closeMemo(true); setPanel('sync'); renderSyncPanel(); }
+    };
     $('btn-add-layer').onclick = () => {
       if (!state.edit) return;
       const l = blankLayer('新しいレイヤー');
@@ -3385,11 +3392,6 @@
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
     };
-    $('btn-sync-open').onclick = () => {
-      if (sync.user) { syncNow(true); return; }
-      closeMemo(true); setPanel('sync'); renderSyncPanel();
-    };
-    $('btn-sync-account').onclick = () => { closeMemo(true); setPanel('sync'); renderSyncPanel(); };
     $('btn-close-sync').onclick = () => setPanel(null);
     $('btn-sync-login').onclick = () => authAct('login');
     $('btn-sync-signup').onclick = () => authAct('signup');
@@ -3444,11 +3446,6 @@
     $('sync-login').classList.toggle('hidden', !!sync.user || sync.status === 'unconfigured');
     $('sync-account').classList.toggle('hidden', !sync.user);
     $('sync-user').textContent = sync.user ? sync.user.email : '';
-    $('btn-sync-open').classList.remove('on');
-    const bOpen = $('btn-sync-open');
-    if (bOpen) bOpen.textContent = sync.user ? '今すぐ同期' : '同期';
-    const bAcc = $('btn-sync-account');
-    if (bAcc) bAcc.classList.toggle('hidden', !sync.user);
   }
 
   async function syncNow(toast) {
