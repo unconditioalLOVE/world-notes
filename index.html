@@ -88,6 +88,7 @@
 
         <!-- スタンプ -->
         <div class="row opt hidden wrap" id="opt-stamp">
+          <button id="btn-stamp-pick" class="stpick empty" type="button" aria-haspopup="listbox" title="スタンプを選ぶ"></button>
           <div class="seg" id="seg-cat"></div>
           <div class="seg" id="seg-stampmode">
             <button data-sm="tap">タップ</button>
@@ -99,9 +100,6 @@
             <button data-sz="L">大</button>
           </div>
           <button id="btn-overpin" class="toggle" title="オンにすると、ピン（都市）の近くをタップした時にピンの上へ半透明で重ねます">ピンに重ねる</button>
-        </div>
-        <div class="row opt hidden" id="opt-stamp-pal">
-          <div id="stamp-pal" class="pal"></div>
         </div>
 
         <!-- 投げ縄の範囲 -->
@@ -379,6 +377,8 @@
     </div>
     <div id="toast" class="hidden"></div>
   </div>
+  <div id="stamp-backdrop" class="hidden"></div>
+  <div id="stamp-menu" class="hidden" role="listbox" aria-label="スタンプ一覧"></div>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>

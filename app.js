@@ -451,6 +451,7 @@
     sizeT: { pen: 66, text: 68, stamp: 70 },
     stamp: 'rice',
     stampCat: 'agri',
+    stampPicked: false,      // スタンプを選ぶまでは未選択（置けない）
     stampMode: 'tap',        // tap | lasso
     lassoKey: null,
     lassoScope: 'country',   // country | all
@@ -1574,6 +1575,7 @@
 
   // 農牧業スタンプを等間隔・密集（ずらし配置）で敷き詰める。対象の国の陸地の内側だけ
   function stampFill(layer, keys, poly) {
+    if (!state.stampPicked) { showToast('スタンプを選んでください'); return; }
     const st = stampDef(), size = stampSizeVal();
     const fs = keys.map(k => byKey.get(k)).filter(Boolean);
     if (!fs.length) return;
@@ -1688,6 +1690,7 @@
   function placeStamp(sx, sy) {
     const layer = drawable();
     if (!layer) return;
+    if (!state.stampPicked) { showToast('スタンプを選んでください'); return; }
     const st = stampDef();
     const top = !stampLasso(st) && state.overPin;     // 工業・鉱産：ピン（都市）の上に半透明で重ねる（切替可）
     let m = toMap(sx, sy);
@@ -2846,19 +2849,76 @@
       seg.appendChild(b);
     });
     renderStampPal();
+    setupStampMenu();
   }
 
+  // --- スタンプ選択ボタン＋候補メニュー ---
   function renderStampPal() {
-    const pal = $('stamp-pal');
-    pal.innerHTML = '';
-    STAMPS.filter(s => s.cat === state.stampCat).forEach(st => {
-      const b = document.createElement('button');
-      b.className = 'stbtn' + (st.id === state.stamp ? ' active' : '');
-      b.dataset.id = st.id;
-      b.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
-      b.onclick = () => { state.stamp = st.id; renderStampPal(); updateUI(); };
-      pal.appendChild(b);
+    const btn = $('btn-stamp-pick');
+    if (!btn) return;
+    if (state.stampPicked) {
+      const st = stampDef();
+      btn.classList.remove('empty');
+      btn.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
+    } else {
+      btn.classList.add('empty');
+      btn.innerHTML = `<span class="stpick-none">スタンプ未選択</span>`;
+    }
+    btn.classList.toggle('open', !$('stamp-menu').classList.contains('hidden'));
+  }
+
+  function closeStampMenu() {
+    $('stamp-menu').classList.add('hidden');
+    $('stamp-backdrop').classList.add('hidden');
+    renderStampPal();
+  }
+
+  function openStampMenu() {
+    const menu = $('stamp-menu'), back = $('stamp-backdrop'), btn = $('btn-stamp-pick');
+    menu.innerHTML = '';
+    CATS.forEach(c => {
+      const h = document.createElement('div');
+      h.className = 'stm-head'; h.textContent = c.name;
+      menu.appendChild(h);
+      STAMPS.filter(st => st.cat === c.id).forEach(st => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'stm-item' + (state.stampPicked && st.id === state.stamp ? ' active' : '');
+        b.innerHTML = `<img src="${spriteURL(st)}" alt="" /><span>${st.name}</span>`;
+        b.onclick = () => {
+          state.stamp = st.id; state.stampCat = st.cat; state.stampPicked = true;
+          if (!LASSO_CATS.has(st.cat)) state.stampMode = 'tap';
+          state.lassoKey = null;
+          closeStampMenu(); updateUI(); renderHighlight();
+        };
+        menu.appendChild(b);
+      });
     });
+    back.classList.remove('hidden');
+    menu.classList.remove('hidden');
+    // ボタンの下（足りなければ上）に配置。地図の表示位置には触れない
+    const r = btn.getBoundingClientRect(), vh = window.innerHeight, gap = 8;
+    const below = vh - r.bottom - gap - 12, above = r.top - gap - 12;
+    menu.style.top = menu.style.bottom = '';
+    if (below >= 260 || below >= above) { menu.style.top = (r.bottom + gap) + 'px'; menu.style.maxHeight = Math.max(160, below) + 'px'; }
+    else { menu.style.bottom = (vh - r.top + gap) + 'px'; menu.style.maxHeight = Math.max(160, above) + 'px'; }
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - menu.offsetWidth - 12));
+    menu.style.left = left + 'px';
+    const act = menu.querySelector('.stm-item.active');
+    if (act) menu.scrollTop = Math.max(0, act.offsetTop - menu.clientHeight / 2 + 40);
+    else menu.scrollTop = 0;
+    renderStampPal();
+  }
+
+  function setupStampMenu() {
+    $('btn-stamp-pick').onclick = () => { $('stamp-menu').classList.contains('hidden') ? openStampMenu() : closeStampMenu(); };
+    const back = $('stamp-backdrop');
+    // 背景は押下を地図へ渡さず、離した時（click）に閉じる。押下時には閉じない（下の地図に click が抜けるのを防ぐ）
+    ['pointerdown', 'pointerup', 'touchstart', 'wheel'].forEach(t => back.addEventListener(t, e => e.stopPropagation(), { passive: true }));
+    back.addEventListener('click', e => { e.stopPropagation(); closeStampMenu(); });
+    ['pointerdown', 'wheel'].forEach(t => $('stamp-menu').addEventListener(t, e => e.stopPropagation()));
+    window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('stamp-menu').classList.contains('hidden')) closeStampMenu(); });
+    window.addEventListener('resize', () => { if (!$('stamp-menu').classList.contains('hidden')) closeStampMenu(); });
   }
 
   function updateSizePreview() {
@@ -2932,7 +2992,6 @@
     show('opt-eraser', s === 'eraser');
     show('opt-text', s === 'text');
     show('opt-stamp', s === 'stamp');
-    show('opt-stamp-pal', s === 'stamp');
     show('seg-stampmode', s === 'stamp' && agri);
     show('btn-overpin', s === 'stamp' && !agri);
     show('opt-target', lassoOn);

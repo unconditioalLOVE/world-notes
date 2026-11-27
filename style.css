@@ -604,22 +604,40 @@ input[readonly], textarea[readonly] {
   padding: 0; background: none; cursor: pointer; flex-shrink: 0;
 }
 
-/* スタンプパレット */
-.pal { display: flex; flex-wrap: wrap; gap: 6px; }
-.stbtn {
-  width: 62px;
-  padding: 5px 0 4px;
-  border: 1.5px solid #dcdcdc;
-  background: #fff;
-  border-radius: 12px;
-  cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  flex-shrink: 0;
+/* スタンプ選択ボタン＋候補メニュー */
+.stpick {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 4px 14px 4px 8px;
+  border: 1.5px solid #111; background: #fff; border-radius: 12px;
+  font-size: 12.5px; font-weight: 600; color: #111; cursor: pointer; flex-shrink: 0;
 }
-.stbtn img { width: 38px; height: 38px; display: block; }
-.stbtn span { font-size: 10px; color: #444; white-space: nowrap; }
-.stbtn.active { border-color: #111; box-shadow: 0 0 0 1px #111; }
-.stbtn.active span { color: #111; font-weight: 600; }
+.stpick img { width: 34px; height: 34px; display: block; }
+.stpick.empty { border: 1.5px dashed #aaa; color: var(--muted); font-weight: 500; padding: 4px 14px; }
+.stpick.open { box-shadow: 0 0 0 1px #111; }
+#stamp-backdrop { position: fixed; inset: 0; z-index: 9000; background: rgba(0, 0, 0, 0.12); touch-action: none; }
+#stamp-menu {
+  position: fixed; z-index: 9001;
+  width: min(440px, calc(100vw - 24px));
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line);
+  padding: 6px 10px 12px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px;
+  user-select: none; -webkit-user-select: none;
+}
+#stamp-menu.hidden { display: none !important; }
+.stm-head {
+  grid-column: 1 / -1; position: sticky; top: -6px; z-index: 1;
+  background: #fff; padding: 10px 2px 4px; font-size: 11px; font-weight: 600; color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.stm-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 0 5px; border: 1.5px solid #dcdcdc; background: #fff; border-radius: 12px; cursor: pointer;
+}
+.stm-item img { width: 40px; height: 40px; display: block; }
+.stm-item span { font-size: 10px; color: #444; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.stm-item.active { border-color: #111; box-shadow: 0 0 0 1px #111; }
+.stm-item.active span { color: #111; font-weight: 600; }
 
 /* テキスト編集 */
 #text-editor { position: absolute; z-index: 28; }
