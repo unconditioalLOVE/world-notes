@@ -927,3 +927,79 @@ input[readonly], textarea[readonly] {
     transform-origin: bottom right;
   }
 }
+
+/* ---------- 国メモ：自由配置キャンバスとグラフ ---------- */
+@media (min-width: 1025px) { #app.country-open { --panel-w: 440px; } }
+#country-panel .view-card { padding-bottom: 10px; }
+#country-panel textarea { min-height: 84px; }
+.cv-section { border-bottom: 1px solid #eee; }
+#app:not(.edit) .cv-section { border-bottom: none; padding-bottom: 20px; }
+.cv-tools { position: sticky; top: 0; z-index: 50; background: #fff; border-bottom: 1px solid #eee; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.cv-toolrow { display: flex; align-items: center; gap: 6px; min-height: 32px; }
+.cv-toolrow .chip-btn, .cv-toolrow .toggle { padding: 6px 11px; }
+#cv-snap { margin-left: auto; }
+#cv-selname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cv-selrow .chip-btn { padding: 6px 8px; font-size: 12px; }
+#cv-wrap { position: relative; margin: 10px 12px; overflow: hidden; }
+#app.edit #cv-wrap { margin: 12px; overflow: visible; }
+#cv-stage { position: absolute; top: 0; left: 0; width: 360px; transform-origin: 0 0; isolation: isolate; }
+#app.edit #cv-stage:not(:empty) { background-image: radial-gradient(#d4d4d4 0.7px, transparent 0.8px); background-size: 12px 12px; }
+.cv-block { position: absolute; }
+.cv-memo p { font-size: 13px; line-height: 1.7; color: #222; padding: 6px; white-space: pre-wrap; word-break: break-word; }
+.cv-memo p.cv-ph { color: #999; font-size: 12px; }
+#app.edit .cv-block { cursor: pointer; background: #fff; outline: 1px dashed #bbb; outline-offset: -0.5px; border-radius: 4px; }
+#app.edit .cv-block.sel { cursor: move; outline: calc(2px * var(--cv-inv, 1)) solid #111; touch-action: none; }
+#app.edit .cv-block.sel * { touch-action: none; }
+.cv-handle {
+  position: absolute; right: 0; bottom: 0; width: 34px; height: 34px;
+  transform: translate(35%, 35%) scale(var(--cv-inv, 1)); cursor: nwse-resize; touch-action: none; z-index: 2;
+}
+.cv-handle::after { content: ""; position: absolute; left: 9px; top: 9px; width: 16px; height: 16px; border-radius: 50%; background: #111; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.35); }
+.cv-handle:hover::after { background: #333; }
+
+.cv-svg { display: block; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+.cv-block .cv-svg { pointer-events: none; }
+.cv-title { font-size: 13px; font-weight: 700; fill: #111; }
+.cv-lb { font-size: 11px; fill: #333; }
+.cv-val { font-size: 11px; font-weight: 600; fill: #111; font-variant-numeric: tabular-nums; }
+.cv-axis { font-size: 10px; fill: #777; }
+.cv-pv { font-size: 10px; font-weight: 600; fill: #111; stroke: #fff; stroke-width: 3; paint-order: stroke; }
+.cv-empty { font-size: 11px; fill: #999; }
+.cv-seg { stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; }
+.cv-seg.pat { stroke: #777; stroke-width: 0.8; }
+.cv-key { stroke: #999; stroke-width: 0.6; }
+.cv-ring { fill: #fff; stroke: none; }
+.cv-outline { stroke: none; }
+.cv-ring2 { fill: none; stroke: #999; stroke-width: 0.7; }
+.cv-grid { stroke: #e6e6e6; stroke-width: 1; }
+.cv-base { stroke: #999; stroke-width: 1; }
+.cv-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.cv-dot { stroke: #fff; stroke-width: 1.5; }
+
+.cv-edhead { position: sticky; top: 0; z-index: 5; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid #eee; }
+.cv-edhead .primary-btn { padding: 8px 14px; }
+.cv-preview { padding: 10px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: center; }
+.cv-preview svg { height: auto; max-height: 260px; }
+.cv-rows { display: flex; flex-direction: column; gap: 6px; }
+.cv-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.cv-row.rest { margin-top: 8px; }
+#cv-editor .cv-row input[type="text"] { flex: 1 1 0; min-width: 0; padding: 8px 9px; }
+#cv-editor .cv-row input.cv-pct { flex: 0 0 58px; text-align: right; padding: 8px 6px; }
+#cv-editor input[type="color"] { width: 28px; height: 28px; flex-shrink: 0; border: 1px solid #ccc; border-radius: 50%; padding: 0; background: none; cursor: pointer; }
+.cv-row select { width: 68px; flex-shrink: 0; height: 36px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; font-family: inherit; font-size: 12px; color: var(--text); padding: 0 2px; }
+.cv-unit { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.cv-x { width: 28px; height: 32px; flex-shrink: 0; border: none; background: transparent; border-radius: 8px; color: #888; font-size: 18px; cursor: pointer; }
+.cv-x:hover { background: var(--accent); color: #b00000; }
+.cv-addrow { margin-top: 10px; }
+.cv-total { font-size: 12px; color: #333; margin-top: 10px; }
+.cv-total.over { color: #b00000; }
+.memo-section label.cv-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text); letter-spacing: 0; margin: 0; cursor: pointer; }
+.cv-check input { width: 18px; height: 18px; accent-color: #111; }
+.cv-optrow { display: flex; align-items: center; gap: 10px; }
+.cv-optrow .cv-check { margin-right: auto !important; }
+
+.cv-foot { flex-shrink: 0; padding: 10px 16px; border-top: 1px solid #eee; }
+.cv-foot .primary-btn { width: 100%; }
+@media (max-width: 1024px) {
+  #app #country-panel { max-height: min(calc(100% - var(--tabs-h, 90px) - 8px), 80%); }
+}

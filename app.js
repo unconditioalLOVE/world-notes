@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-27-v16';
+  const BUILD = '2026-11-27-v25';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -711,7 +711,7 @@
       notes: (Array.isArray(l.notes) ? l.notes : []).filter(n => n && typeof n.text === 'string' && n.text.trim() && isFinite(n.lon) && isFinite(n.lat))
         .map(n => ({ id: n.id || 'N' + uid(), lon: n.lon, lat: n.lat, text: n.text }))
     }));
-    state.countries = d.countries && typeof d.countries === 'object' ? d.countries : {};
+    state.countries = cleanCountries(d.countries);
     if (d.guides && typeof d.guides === 'object') {
       state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
@@ -1047,7 +1047,7 @@
 
   // メモのある国をほんのり色づけ
   function renderMemoMarks() {
-    svgBase.selectAll('.country').classed('has-memo', d => !!((state.countries[d._key] || {}).memo || '').trim());
+    svgBase.selectAll('.country').classed('has-memo', d => hasCountryNote(state.countries[d._key]));
   }
 
   function renderHighlight() {
@@ -2210,12 +2210,12 @@
     state.selectedCountryKey = f._key;
     $('country-head').textContent = f._name;
     $('country-v-title').textContent = f._name;
-    const memo = (state.countries[f._key] || {}).memo || '';
-    $('country-memo').value = memo;
-    $('country-v-memo').textContent = memo;
-    $('country-v-memo').classList.toggle('hidden', !memo.trim());
+    $('country-memo').value = (state.countries[f._key] || {}).memo || '';
+    cvReset();
     renderCountryChips();
     setPanel('country');
+    $('country-body').scrollTop = 0;
+    renderCanvas();
     renderHighlight();
   }
 
@@ -2238,6 +2238,7 @@
     state.panel = name;
     ['layer', 'pin', 'country', 'note', 'sync'].forEach(n => $(n + '-panel').classList.toggle('hidden', n !== name));
     $('app').classList.toggle('panel-open', !!name);
+    $('app').classList.toggle('country-open', name === 'country');
     $('btn-layers').classList.toggle('active', name === 'layer');
     const bAcc = $('btn-account');
     if (bAcc) bAcc.classList.toggle('active', name === 'sync');
@@ -2262,6 +2263,7 @@
     }
     const hadPin = state.selectedPinId;
     const hadNote = state.selectedNoteId;
+    cvReset();
     state.selectedPinId = null;
     state.selectedCountryKey = null;
     state.selectedNoteId = null;
@@ -2274,6 +2276,724 @@
   function toggleLayerPanel() {
     if (state.panel === 'layer') setPanel(null);
     else { closeMemo(true); setPanel('layer'); }
+  }
+
+  /* =========================================================
+   * 国メモの自由配置キャンバス（メモ＋円・棒・推移グラフ）
+   * 座標は幅 CV_W の固定キャンバス基準。画面幅に合わせて全体を拡大縮小するので配置の比率は崩れない
+   * ======================================================= */
+  const CV_W = 360;
+  const CV_GAP = 12;
+  const CV_SNAP = 6;
+  const CV_MIN_W = 120;
+  const CV_MAX_ITEMS = 20;
+  const CV_MAX_ROWS = 60;
+  const CV_TYPES = { memo: 'メモ', pie: '円グラフ', bar: '棒グラフ', trend: '推移グラフ' };
+  const CV_STYLES = [{ id: 'solid', name: '塗り' }, ...PATTERNS.map(p => ({ id: p.id, name: p.name }))];
+  const CV_LOOKS = [
+    ['#1a1a1a', 'solid'], ['#8a8a8a', 'solid'], ['#1a1a1a', 'diag'], ['#c2c2c2', 'solid'], ['#1a1a1a', 'dots'],
+    ['#555555', 'solid'], ['#1a1a1a', 'hline'], ['#1a1a1a', 'grid'], ['#1a1a1a', 'vline'], ['#1a1a1a', 'cross']
+  ];
+  const cvs = { sel: null, editing: null, drag: null, scale: 1, snap: lsGetSafe('wn-cv-snap') !== '0', seq: 0 };
+  function lsGetSafe(k) { try { return localStorage.getItem(k); } catch { return null; } }
+
+  /* ---------- データ ---------- */
+  const cvStr = (v, n = 60) => String(v == null ? '' : v).slice(0, n);
+  const cvColor = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v) ? v : d);
+  const cvStyle = v => (CV_STYLES.some(s => s.id === v) ? v : 'solid');
+  function cvNum(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,%\s]/g, '').replace(/[−‐ー]/g, '-');
+    if (!t) return null;
+    const n = Number(t);
+    return isFinite(n) ? n : null;
+  }
+  const cvBox = (b, d) => ({
+    x: isFinite(b && b.x) ? clamp(b.x, 0, CV_W - CV_MIN_W) : d.x,
+    y: isFinite(b && b.y) ? clamp(b.y, 0, 20000) : d.y,
+    w: isFinite(b && b.w) ? clamp(b.w, CV_MIN_W, CV_W) : d.w,
+    h: isFinite(b && b.h) ? clamp(b.h, 0, 1200) : d.h
+  });
+  function cleanBlock(b) {
+    if (!b || !['pie', 'bar', 'trend'].includes(b.type)) return null;
+    const o = {
+      id: typeof b.id === 'string' && /^[\w-]{1,40}$/.test(b.id) ? b.id : 'B' + uid(), type: b.type, title: cvStr(b.title),
+      ...cvBox(b, { x: 0, y: 0, w: CV_W, h: 180 })
+    };
+    o.x = Math.min(o.x, CV_W - o.w);
+    if (b.type === 'trend') {
+      o.unit = cvStr(b.unit, 16);
+      o.zero = b.zero !== false;
+      o.color = cvColor(b.color, '#1a1a1a');
+      o.rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, CV_MAX_ROWS).map(r => ({ x: cvStr(r && r.x, 20), y: cvNum(r && r.y) }));
+    } else {
+      o.items = (Array.isArray(b.items) ? b.items : []).slice(0, CV_MAX_ITEMS).map((it, i) => {
+        const look = CV_LOOKS[i % CV_LOOKS.length], v = cvNum(it && it.value);
+        return { name: cvStr(it && it.name, 40), value: v === null ? null : Math.max(0, v), color: cvColor(it && it.color, look[0]), style: cvStyle(it && it.style) };
+      });
+      const r = b.rest || {};
+      o.rest = { show: r.show !== false, name: cvStr(r.name, 40), color: cvColor(r.color, '#e6e6e6'), style: cvStyle(r.style) };
+    }
+    return o;
+  }
+  function cleanCountries(src) {
+    const out = {};
+    if (!src || typeof src !== 'object') return out;
+    Object.keys(src).forEach(k => {
+      const e = src[k];
+      if (!e || typeof e !== 'object' || k === '__proto__') return;
+      const o = { memo: typeof e.memo === 'string' ? e.memo : '' };
+      const blocks = (Array.isArray(e.blocks) ? e.blocks : []).map(cleanBlock).filter(Boolean);
+      if (blocks.length) o.blocks = blocks;
+      if (e.memoBox && typeof e.memoBox === 'object') {
+        o.memoBox = { ...cvBox(e.memoBox, { x: 0, y: 0, w: CV_W, h: 0 }), z: isFinite(e.memoBox.z) ? e.memoBox.z : 0 };
+        o.memoBox.x = Math.min(o.memoBox.x, CV_W - o.memoBox.w);
+      }
+      if (o.memo.trim() || blocks.length) out[k] = o;
+    });
+    return out;
+  }
+  function hasCountryNote(e) { return !!e && (!!(e.memo || '').trim() || !!(e.blocks && e.blocks.length)); }
+
+  // 編集中の国のデータ。create=true なら（空でも）作る
+  function cvEntry(create) {
+    const key = state.selectedCountryKey;
+    if (!key) return null;
+    let e = state.countries[key];
+    if (!e && create) e = state.countries[key] = { memo: '' };
+    return e || null;
+  }
+  const cvMemoBox = e => (e && e.memoBox) || { x: 0, y: 0, w: CV_W, h: 0, z: 0 };
+  function cvEnsureMemoBox(e) { if (!e.memoBox) e.memoBox = { ...cvMemoBox(e) }; return e.memoBox; }
+  const cvFind = id => { const e = cvEntry(); return e && (e.blocks || []).find(b => b.id === id); };
+  // 重なり順（下→上）。メモは memoBox.z の位置に入る
+  function cvOrder(e) {
+    const ids = ((e && e.blocks) || []).map(b => b.id);
+    ids.splice(clamp(cvMemoBox(e).z || 0, 0, ids.length), 0, 'memo');
+    return ids;
+  }
+  function cvCommit() { renderMemoMarks(); saveSoon(); }
+  // パネルを閉じる時：中身がなくなった国のデータは消す
+  function cvPrune() {
+    const key = state.selectedCountryKey, e = key && state.countries[key];
+    if (e && !hasCountryNote(e)) { delete state.countries[key]; renderMemoMarks(); saveSoon(); }
+  }
+  function cvReset() {
+    cvEndDrag();
+    cvPrune();
+    cvs.sel = null; cvs.editing = null;
+    $('cv-editor').classList.add('hidden');
+    $('cv-editor').innerHTML = '';
+    $('cv-main').classList.remove('hidden');
+  }
+
+  /* ---------- グラフ描画（SVG文字列） ---------- */
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const CV_FONT = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif';
+  function textW(t, size, weight) { measureCtx.font = `${weight || 400} ${size}px ${CV_FONT}`; return measureCtx.measureText(t).width; }
+  function fitText(t, max, size, weight) {
+    if (textW(t, size, weight) <= max) return t;
+    const a = Array.from(t);
+    while (a.length && textW(a.join('') + '…', size, weight) > max) a.pop();
+    return a.join('') + '…';
+  }
+  const svgText = (x, y, t, cls, anchor) => `<text x="${fx(x)}" y="${fx(y)}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ''}>${esc(t)}</text>`;
+  const fmtNum = v => (Math.round(v * 100) / 100).toLocaleString('ja-JP');
+
+  // 塗り方 → fill 属性（模様は <pattern> を defs に足す）
+  function cvFill(look, defs, at) {
+    const p = look.style !== 'solid' && PATTERNS.find(q => q.id === look.style);
+    if (!p) return look.color;
+    const id = 'cvp' + (++cvs.seq);
+    defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse"${at ? ` x="${fx(at[0] - (p.id === 'grid' ? 0.5 : p.w / 2))}" y="${fx(at[1] - (p.id === 'grid' ? 0.5 : p.h / 2))}"` : ''} width="${p.w}" height="${p.h}" style="color:${look.color}"><rect width="${p.w}" height="${p.h}" fill="#fff"/>${p.body}</pattern>`);
+    return `url(#${id})`;
+  }
+
+  // 模様どうしは白い区切りが見えないので、灰色の線で区切る
+  const cvSegClass = it => (it.style === 'solid' ? 'cv-seg' : 'cv-seg pat');
+
+  // 円・棒で共通の「項目＋残り」
+  function cvParts(b) {
+    const items = b.items.filter(it => it.value !== null || it.name.trim())
+      .map((it, i) => ({ name: it.name.trim() || `項目${i + 1}`, value: it.value || 0, color: it.color, style: it.style }));
+    const sum = items.reduce((a, it) => a + it.value, 0);
+    const rest = Math.max(0, Math.round((100 - sum) * 1000) / 1000);
+    if (items.length && rest > 0 && b.rest.show) items.push({ name: b.rest.name.trim() || cvRestName(b.type), value: rest, color: b.rest.color, style: b.rest.style });
+    return { items, sum, total: Math.max(100, sum) };
+  }
+  const cvRestName = type => (type === 'pie' ? 'その他' : '残り');
+
+  const titleH = b => (b.title.trim() ? 22 : 0);
+  function cvLegend(items, x, y, w, defs) {
+    return items.map((it, i) => {
+      const cy = y + i * 18 + 9, val = fmtNum(it.value) + '%', vw = textW(val, 11, 600);
+      return `<rect x="${fx(x + 0.5)}" y="${fx(cy - 5)}" width="10" height="10" rx="2" fill="${cvFill(it, defs, [x + 5.5, cy])}" class="cv-key"/>` +
+        svgText(x + 16, cy + 4, fitText(it.name, Math.max(10, w - 16 - vw - 6), 11), 'cv-lb') +
+        svgText(x + w, cy + 4, val, 'cv-val', 'end');
+    }).join('');
+  }
+  const pieSide = w => w >= 250;
+  const barCols = w => (w >= 250 ? 2 : 1);
+  // 中身が欠けずに収まる最小の高さ
+  function cvMinH(b) {
+    const th = titleH(b);
+    if (b.type === 'trend') return th + 110;
+    const n = cvParts(b).items.length;
+    if (!n) return th + 60;
+    if (b.type === 'pie') return pieSide(b.w) ? th + Math.max(n * 18, 80) + 12 : th + 70 + n * 18 + 16;
+    return th + 24 + 8 + Math.ceil(n / barCols(b.w)) * 18 + 10;
+  }
+
+  function drawPie(b, w, h, defs) {
+    const { items } = cvParts(b), th = titleH(b), pad = 6;
+    if (!items.length) return null;
+    const side = pieSide(w), legendH = items.length * 18;
+    const d = side ? Math.min(h - th - pad * 2, w * 0.46) : Math.min(w - pad * 2, h - th - legendH - pad * 2 - 4);
+    const r = Math.max(10, d / 2);
+    const cx = side ? pad + r : w / 2, cy = side ? th + (h - th) / 2 : th + pad + r;
+    const total = Math.max(100, items.reduce((a, it) => a + it.value, 0));
+    let out = `<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(r)}" class="cv-ring"/>`, a0 = -Math.PI / 2;
+    items.forEach(it => {
+      if (!(it.value > 0)) return;
+      const da = it.value / total * Math.PI * 2, a1 = a0 + da, fill = cvFill(it, defs);
+      if (da >= Math.PI * 2 - 1e-6) out += `<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(r)}" fill="${fill}" class="cv-outline"/>`;
+      else out += `<path d="M${fx(cx)} ${fx(cy)}L${P2(cx, cy, r, a0)}A${fx(r)} ${fx(r)} 0 ${da > Math.PI ? 1 : 0} 1 ${P2(cx, cy, r, a1)}Z" fill="${fill}" class="${cvSegClass(it)}"/>`;
+      a0 = a1;
+    });
+    out += `<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(r)}" class="cv-ring2"/>`;
+    const lx = side ? cx + r + 14 : pad, ly = side ? th + (h - th - legendH) / 2 : cy + r + 10;
+    return out + cvLegend(items, lx, ly, w - lx - pad, defs);
+  }
+
+  function drawBar(b, w, h, defs) {
+    const { items, total } = cvParts(b), th = titleH(b), pad = 6;
+    if (!items.length) return null;
+    const cols = barCols(w), rows = Math.ceil(items.length / cols);
+    const bh = clamp(h - th - rows * 18 - 18, 16, 64), by = th + 4, bw = w - pad * 2;
+    const clipId = 'cvc' + (++cvs.seq);
+    defs.push(`<clipPath id="${clipId}"><rect x="${pad}" y="${by}" width="${fx(bw)}" height="${fx(bh)}" rx="4"/></clipPath>`);
+    let out = `<g clip-path="url(#${clipId})">`, x = pad;
+    items.forEach(it => {
+      const sw = it.value / total * bw;
+      if (sw > 0) {
+        out += `<rect x="${fx(x)}" y="${by}" width="${fx(sw)}" height="${fx(bh)}" fill="${cvFill(it, defs)}" class="${cvSegClass(it)}"/>`;
+      }
+      x += sw;
+    });
+    out += `</g><rect x="${pad}" y="${by}" width="${fx(bw)}" height="${fx(bh)}" rx="4" class="cv-ring2"/>`;
+    const colW = (bw - (cols - 1) * 14) / cols;
+    for (let c = 0; c < cols; c++) out += cvLegend(items.slice(c * rows, (c + 1) * rows), pad + c * (colW + 14), by + bh + 8, colW, defs);
+    return out;
+  }
+
+  function drawTrend(b, w, h) {
+    let pts = b.rows.map(r => ({ label: r.x.trim(), v: r.y })).filter(p => p.v !== null);
+    if (!pts.length) return null;
+    pts.forEach(p => { p.n = cvNum(p.label.replace(/年(度)?$/, '')); });
+    const numeric = pts.every(p => p.n !== null);
+    if (numeric) pts.sort((a, c) => a.n - c.n);
+    const th = titleH(b), unit = b.unit.trim();
+    const top = th + (unit ? 18 : 8) + 6, bottom = h - 18, right = w - 14;
+    let lo = Math.min(...pts.map(p => p.v)), hi = Math.max(...pts.map(p => p.v));
+    if (b.zero) { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+    if (lo === hi) { const d = Math.abs(lo) || 1; hi += d / 2; if (!b.zero) lo -= d / 2; }
+    const y = d3.scaleLinear().domain([lo, hi]).range([bottom, top]).nice(4);
+    const ticks = y.ticks(clamp(Math.floor((bottom - top) / 26), 2, 5));
+    const compact = v => (Math.abs(v) >= 1e8 ? fmtNum(v / 1e8) + '億' : Math.abs(v) >= 1e4 ? fmtNum(v / 1e4) + '万' : fmtNum(v));
+    const left = Math.max(...ticks.map(t => textW(compact(t), 10))) + 12;
+    const span = numeric ? pts[pts.length - 1].n - pts[0].n : 0;
+    const x0 = left + 8, x1 = right - 6;
+    const X = (p, i) => {
+      if (pts.length === 1) return (x0 + x1) / 2;
+      return x0 + (x1 - x0) * (numeric && span ? (p.n - pts[0].n) / span : i / (pts.length - 1));
+    };
+    let out = unit ? svgText(6, th + 12, fitText(unit, w - 12, 10), 'cv-axis') : '';
+    ticks.forEach(t => {
+      out += `<line x1="${fx(left)}" x2="${fx(right)}" y1="${fx(y(t))}" y2="${fx(y(t))}" class="${t === 0 ? 'cv-base' : 'cv-grid'}"/>` +
+        svgText(left - 5, y(t) + 3.5, compact(t), 'cv-axis', 'end');
+    });
+    const xy = pts.map((p, i) => [X(p, i), y(p.v)]);
+    if (xy.length > 1) out += `<path d="M${xy.map(q => fx(q[0]) + ' ' + fx(q[1])).join('L')}" class="cv-line" stroke="${b.color}"/>`;
+    xy.forEach((q, i) => {
+      out += `<circle cx="${fx(q[0])}" cy="${fx(q[1])}" r="${pts.length > 24 ? 1.6 : 3.5}" fill="${b.color}" class="${pts.length > 24 ? '' : 'cv-dot'}"><title>${esc(pts[i].label + ' : ' + fmtNum(pts[i].v) + (unit ? ' ' + unit : ''))}</title></circle>`;
+    });
+    // 値と横軸ラベルは、重ならないものだけ表示（最後の点を優先）
+    const place = (text, size, weight) => {
+      const used = [], res = new Map();
+      const order = [xy.length - 1, 0, ...xy.map((_, i) => i).slice(1, -1)];
+      [...new Set(order)].forEach(i => {
+        const t = text(i); if (!t) return;
+        const tw = textW(t, size, weight), cx = clamp(xy[i][0], tw / 2 + 1, w - tw / 2 - 1);
+        if (used.some(u => cx - tw / 2 < u[1] + 5 && cx + tw / 2 > u[0] - 5)) return;
+        used.push([cx - tw / 2, cx + tw / 2]); res.set(i, [cx, t]);
+      });
+      return res;
+    };
+    place(i => fmtNum(pts[i].v), 10, 600).forEach(([cx, t], i) => { out += svgText(cx, Math.max(xy[i][1] - 7, top - 3), t, 'cv-pv', 'middle'); });
+    place(i => pts[i].label, 10).forEach(([cx, t]) => { out += svgText(cx, h - 5, t, 'cv-axis', 'middle'); });
+    return out;
+  }
+
+  function chartSVG(b, w, h) {
+    const defs = [];
+    const body = b.type === 'pie' ? drawPie(b, w, h, defs) : b.type === 'bar' ? drawBar(b, w, h, defs) : drawTrend(b, w, h);
+    const title = b.title.trim() ? svgText(6, 15, fitText(b.title.trim(), w - 12, 13, 700), 'cv-title') : '';
+    const empty = body === null ? svgText(w / 2, titleH(b) + (h - titleH(b)) / 2 + 4, `${CV_TYPES[b.type]}（データ未入力）`, 'cv-empty', 'middle') : '';
+    const label = (b.title.trim() || CV_TYPES[b.type]);
+    return `<svg class="cv-svg" viewBox="0 0 ${fx(w)} ${fx(h)}" width="${fx(w)}" height="${fx(h)}" role="img" aria-label="${esc(label)}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}${title}${body || ''}${empty}</svg>`;
+  }
+
+  /* ---------- キャンバス描画 ---------- */
+  function renderCanvas() {
+    const stage = $('cv-stage'), wrap = $('cv-wrap');
+    if (!state.selectedCountryKey) { stage.innerHTML = ''; return; }
+    const e = cvEntry(), memo = (e && e.memo) || '', edit = state.edit;
+    const blocks = (e && e.blocks) || [];
+    stage.innerHTML = '';
+    const outer = wrap.clientWidth;
+    if (!outer) return;
+    cvs.scale = Math.min(outer / CV_W, 1.5);
+    stage.style.setProperty('--cv-inv', 1 / cvs.scale);
+    stage.style.transform = `scale(${cvs.scale})`;
+    stage.style.left = Math.max(0, (outer - CV_W * cvs.scale) / 2) + 'px';
+
+    const showMemo = !!memo.trim() || (edit && blocks.length > 0);
+    const els = new Map();
+    cvOrder(e).forEach((id, z) => {
+      if (id === 'memo' && !showMemo) return;
+      const el = document.createElement('div');
+      el.className = 'cv-block' + (id === 'memo' ? ' cv-memo' : '') + (edit && cvs.sel === id ? ' sel' : '');
+      el.dataset.id = id;
+      el.style.zIndex = z + 1;
+      if (id === 'memo') {
+        const p = document.createElement('p');
+        p.textContent = memo.trim() ? memo : 'メモ（上の欄に入力すると表示されます）';
+        if (!memo.trim()) p.className = 'cv-ph';
+        el.appendChild(p);
+      }
+      stage.appendChild(el);
+      els.set(id, el);
+    });
+
+    // メモは文章量で高さが決まる。伸びてすぐ下の部品にかぶる時は、その部品を下へ送る
+    const pos = new Map(blocks.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: Math.max(b.h, cvMinH(b)) }]));
+    const mEl = els.get('memo');
+    if (mEl) {
+      const m = cvMemoBox(e);
+      Object.assign(mEl.style, { left: m.x + 'px', top: m.y + 'px', width: m.w + 'px' });
+      const mh = mEl.offsetHeight;
+      if (m.h && mh > m.h + 0.5) cvPushDown(pos, { ...m, h: mh }, m.y + m.h);
+      if (edit) {
+        const mb = cvEnsureMemoBox(e);
+        if (Math.abs(mb.h - mh) > 0.5) {
+          mb.h = mh;
+          blocks.forEach(b => { b.y = pos.get(b.id).y; });
+        }
+      }
+    }
+    blocks.forEach(b => {
+      const el = els.get(b.id), q = pos.get(b.id);
+      cvPlace(el, q);
+      el.innerHTML = chartSVG(b, q.w, q.h);
+    });
+    if (edit && cvs.sel && els.has(cvs.sel)) {
+      const h = document.createElement('i');
+      h.className = 'cv-handle';
+      els.get(cvs.sel).appendChild(h);
+    }
+    // 閲覧時は上の余白を詰める
+    let top = 0;
+    if (!edit && els.size) {
+      top = Math.min(...[...els.values()].map(el => el.offsetTop));
+      els.forEach(el => { el.style.top = (el.offsetTop - top) + 'px'; });
+    }
+    cvSizeStage();
+    cvUpdateTools();
+  }
+  function cvPlace(el, q) { Object.assign(el.style, { left: q.x + 'px', top: q.y + 'px', width: q.w + 'px', height: q.h + 'px' }); }
+  function cvPushDown(pos, anchor, fromY) {
+    const queue = [[anchor, fromY]];
+    const moved = new Set();
+    while (queue.length) {
+      const [a, from] = queue.shift();
+      pos.forEach((q, id) => {
+        if (moved.has(id) || q === a) return;
+        const overlapX = q.x < a.x + a.w - 1 && q.x + q.w > a.x + 1;
+        if (overlapX && q.y >= from - 1 && q.y < a.y + a.h + CV_GAP - 0.5) {
+          const old = q.y + q.h;
+          q.y = a.y + a.h + CV_GAP;
+          moved.add(id);
+          queue.push([q, old]);
+        }
+      });
+    }
+  }
+  function cvBottom() {
+    return Math.max(0, ...[...$('cv-stage').children].map(el => el.offsetTop + el.offsetHeight));
+  }
+  function cvSizeStage() {
+    const bottom = cvBottom();
+    // 編集中は下に余白を残して、部品をさらに下へ置けるようにする
+    let h = bottom ? bottom + (state.edit ? 80 : 4) : 0;
+    // ドラッグ中は縮めない（縮むとスクロール位置がずれて、部品が勝手に流れる）
+    if (cvs.drag) h = Math.max(h, cvs.drag.stageH);
+    $('cv-stage').style.height = h + 'px';
+    $('cv-wrap').style.height = (h * cvs.scale) + 'px';
+  }
+  function cvUpdateTools() {
+    const id = cvs.sel, e = cvEntry(), b = id && id !== 'memo' ? cvFind(id) : null;
+    const on = !!id && (id === 'memo' || !!b);
+    $('cv-snap').classList.toggle('on', cvs.snap);
+    $('cv-selname').textContent = !on
+      ? ((e && e.blocks && e.blocks.length) ? '部品をタップして選ぶと、移動・大きさ変更ができます' : (e && e.memo.trim() ? 'グラフを追加すると自由に並べられます' : 'グラフとメモを自由に並べられます'))
+      : (b ? b.title.trim() || CV_TYPES[b.type] : 'メモ');
+    const many = on && cvOrder(e).length > 1;
+    $('cv-edit').classList.toggle('hidden', !on);
+    $('cv-front').classList.toggle('hidden', !many);
+    $('cv-back').classList.toggle('hidden', !many);
+    $('cv-del').classList.toggle('hidden', !b);
+  }
+  function cvSelect(id) {
+    if (cvs.sel === id) return;
+    cvs.sel = id;
+    renderCanvas();
+  }
+
+  /* ---------- 追加・削除・重なり順 ---------- */
+  const blankItem = i => ({ name: '', value: null, color: CV_LOOKS[i % CV_LOOKS.length][0], style: CV_LOOKS[i % CV_LOOKS.length][1] });
+  function cvAdd(type) {
+    if (!state.edit) return;
+    const e = cvEntry(true);
+    if (!e) return;
+    renderCanvas();
+    const y = cvBottom();
+    const raw = { type, title: '', x: 0, y: y ? Math.ceil(y + CV_GAP) : 0, w: CV_W, h: type === 'bar' ? 100 : type === 'pie' ? 170 : 190 };
+    if (type === 'trend') raw.rows = [{ x: '', y: null }, { x: '', y: null }, { x: '', y: null }];
+    else raw.items = [blankItem(0), blankItem(1)];
+    const b = cleanBlock(raw);
+    // まだ中身がない国では、先頭をメモ用に空けておく
+    if (!e.blocks && !e.memo.trim()) { cvEnsureMemoBox(e).h = 36; b.y = 36 + CV_GAP; }
+    (e.blocks = e.blocks || []).push(b);
+    cvs.sel = b.id;
+    cvCommit();
+    cvOpenEditor(b.id);
+  }
+  function cvDelete() {
+    const e = cvEntry(), b = cvFind(cvs.sel);
+    if (!e || !b || !state.edit) return;
+    if (!confirm(`「${b.title.trim() || CV_TYPES[b.type]}」を削除しますか？`)) return;
+    const order = cvOrder(e);
+    if (order.indexOf(b.id) < order.indexOf('memo')) cvEnsureMemoBox(e).z--;
+    e.blocks = e.blocks.filter(x => x !== b);
+    if (!e.blocks.length) delete e.blocks;
+    cvs.sel = null;
+    renderCanvas(); cvCommit();
+    showToast('グラフを削除しました');
+  }
+  function cvRestack(front) {
+    const e = cvEntry(), id = cvs.sel;
+    if (!e || !id || !state.edit) return;
+    const order = cvOrder(e).filter(x => x !== id);
+    if (front) order.push(id); else order.unshift(id);
+    cvEnsureMemoBox(e).z = order.indexOf('memo');
+    if (e.blocks) e.blocks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    renderCanvas(); cvCommit();
+  }
+
+  /* ---------- ドラッグ（移動・大きさ変更） ---------- */
+  // 候補の線に近ければ吸い付く
+  function cvSnapTo(values, targets) {
+    let best = null;
+    values.forEach(v => targets.forEach(t => {
+      const d = t - v;
+      if (Math.abs(d) <= CV_SNAP && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+    }));
+    return best || 0;
+  }
+  function cvTargets(id) {
+    const xs = [0, CV_W / 2, CV_W], ys = [0];
+    [...$('cv-stage').children].forEach(el => {
+      if (el.dataset.id === id) return;
+      const l = el.offsetLeft, t = el.offsetTop, w = el.offsetWidth, h = el.offsetHeight;
+      xs.push(l, l + w / 2, l + w, l + w + CV_GAP / 2, l - CV_GAP / 2);
+      ys.push(t, t + h, t + h + CV_GAP);
+    });
+    return { xs, ys };
+  }
+  function cvPointerDown(ev) {
+    if (!state.edit || cvs.drag || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    cvs.skipClick = false;
+    const el = ev.target.closest('.cv-block');
+    if (!el) return;
+    const id = el.dataset.id;
+    if (cvs.sel !== id) {
+      // 指の場合は、未選択の部品の上からでもスクロールできるようにタップ(click)で選ぶ
+      if (ev.pointerType === 'mouse') { cvSelect(id); } else return;
+    }
+    const node = [...$('cv-stage').children].find(c => c.dataset.id === id);
+    const e = cvEntry(true), b = id === 'memo' ? cvEnsureMemoBox(e) : cvFind(id);
+    if (!node || !b) return;
+    ev.preventDefault();
+    cvs.skipClick = true;      // ポインタを掴んだ後の click は選択解除扱いにしない
+    const resize = ev.target.classList.contains('cv-handle');
+    cvs.drag = {
+      id, node, b, resize, pid: ev.pointerId, sx: ev.clientX, sy: ev.clientY, cx: ev.clientX, cy: ev.clientY,
+      scroll: $('country-body').scrollTop, moved: false, stageH: $('cv-stage').offsetHeight,
+      o: { x: node.offsetLeft, y: node.offsetTop, w: node.offsetWidth, h: node.offsetHeight }, t: cvTargets(id)
+    };
+    try { $('cv-stage').setPointerCapture(ev.pointerId); } catch { /* noop */ }
+    cvs.drag.timer = setInterval(cvAutoScroll, 30);
+  }
+  function cvPointerMove(ev) {
+    const d = cvs.drag;
+    if (!d || ev.pointerId !== d.pid) return;
+    d.cx = ev.clientX; d.cy = ev.clientY;
+    cvApplyDrag();
+  }
+  function cvAutoScroll() {
+    const d = cvs.drag;
+    if (!d || !d.moved) return;
+    const body = $('country-body'), r = body.getBoundingClientRect();
+    const topEdge = r.top + (document.querySelector('.cv-tools').offsetHeight || 0) + 20;
+    // 端の近くで、その方向へ指を動かしている時だけ送る（端の部品を掴んだだけで流れないように）
+    const dir = d.cy > r.bottom - 28 && d.cy - d.sy > 12 ? 1 : d.cy < topEdge && d.sy - d.cy > 12 ? -1 : 0;
+    if (!dir) return;
+    const before = body.scrollTop;
+    body.scrollTop += dir * 9;
+    if (body.scrollTop !== before) cvApplyDrag();
+  }
+  function cvApplyDrag() {
+    const d = cvs.drag;
+    const rawX = d.cx - d.sx, rawY = d.cy - d.sy + ($('country-body').scrollTop - d.scroll);
+    if (!d.moved && Math.hypot(rawX, rawY) < 4) return;
+    d.moved = true;
+    const dx = rawX / cvs.scale, dy = rawY / cvs.scale, o = d.o;
+    const isMemo = d.id === 'memo';
+    let { x, y, w, h } = o;
+    if (d.resize) {
+      w = clamp(o.w + dx, CV_MIN_W, CV_W - o.x);
+      if (cvs.snap) w = clamp(w + cvSnapTo([o.x + w], d.t.xs), CV_MIN_W, CV_W - o.x);
+      if (!isMemo) {
+        const min = cvMinH({ ...d.b, w });
+        h = clamp(o.h + dy, min, 1200);
+        if (cvs.snap) h = clamp(h + cvSnapTo([o.y + h], d.t.ys), min, 1200);
+      }
+    } else {
+      x = o.x + dx; y = o.y + dy;
+      if (cvs.snap) {
+        x += cvSnapTo([x, x + w / 2, x + w], d.t.xs);
+        y += cvSnapTo([y, y + h], d.t.ys);
+      }
+      x = clamp(x, 0, CV_W - w); y = clamp(y, 0, 20000);
+    }
+    const r = v => Math.round(v * 10) / 10;
+    d.b.x = r(x); d.b.y = r(y); d.b.w = r(w);
+    if (isMemo) {
+      Object.assign(d.node.style, { left: d.b.x + 'px', top: d.b.y + 'px', width: d.b.w + 'px' });
+      d.b.h = d.node.offsetHeight;
+    } else {
+      d.b.h = r(h);
+      cvPlace(d.node, d.b);
+      if (d.resize) {
+        d.node.querySelector('svg').remove();
+        d.node.insertAdjacentHTML('afterbegin', chartSVG(d.b, d.b.w, d.b.h));
+      }
+    }
+    cvSizeStage();
+  }
+  function cvEndDrag() {
+    const d = cvs.drag;
+    if (!d) return;
+    clearInterval(d.timer);
+    cvs.drag = null;
+    if (d.moved) { cvSizeStage(); cvCommit(); }
+  }
+
+  /* ---------- グラフの中身を編集 ---------- */
+  function cvOpenEditor(id) {
+    if (!state.edit) return;
+    if (id === 'memo') {
+      const t = $('country-memo');
+      t.focus({ preventScroll: true });
+      $('country-body').scrollTop = 0;
+      return;
+    }
+    if (!cvFind(id)) return;
+    cvs.editing = id; cvs.sel = id;
+    $('cv-main').classList.add('hidden');
+    $('cv-editor').classList.remove('hidden');
+    buildEditor();
+    $('country-body').scrollTop = 0;
+  }
+  function cvCloseEditor() {
+    cvs.editing = null;
+    $('cv-editor').classList.add('hidden');
+    $('cv-editor').innerHTML = '';
+    $('cv-main').classList.remove('hidden');
+    renderCanvas();
+    const el = [...$('cv-stage').children].find(c => c.dataset.id === cvs.sel);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => {
+      if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (k === 'value') el.value = v;
+      else if (k === 'checked') el.checked = v;
+      else el.setAttribute(k, v);
+    });
+    el.append(...kids.filter(k => k !== null && k !== undefined));
+    return el;
+  }
+  function buildEditor() {
+    const root = $('cv-editor'), b = cvFind(cvs.editing);
+    if (!b) return;
+    root.innerHTML = '';
+    const preview = h('div', { class: 'cv-preview' });
+    const total = h('p', { class: 'cv-total' });
+    const refresh = () => {
+      const need = cvMinH(b), height = Math.max(b.h, need);
+      preview.innerHTML = chartSVG({ ...b, x: 0, y: 0 }, b.w, height);
+      const svg = preview.firstChild;
+      svg.removeAttribute('height');
+      svg.setAttribute('width', '100%');
+      svg.style.maxWidth = (b.w * 1.3) + 'px';
+      if (b.type !== 'trend') {
+        const sum = b.items.reduce((a, it) => a + (it.value || 0), 0), left = Math.round((100 - sum) * 100) / 100;
+        total.textContent = left >= 0 ? `入力の合計 ${fmtNum(sum)}% ／ 残り ${fmtNum(left)}%`
+          : `合計が ${fmtNum(sum)}% で100%を超えています（グラフは合計に対する比率で表示）`;
+        total.classList.toggle('over', left < 0);
+      }
+    };
+    // 入力のたびに：必要なら高さを広げ、下の部品を送ってから保存
+    const changed = () => {
+      const need = cvMinH(b);
+      if (need > b.h) {
+        const e = cvEntry(), oldBottom = b.y + b.h;
+        b.h = need;
+        const pos = new Map(e.blocks.filter(x => x !== b).map(x => [x.id, { x: x.x, y: x.y, w: x.w, h: x.h }]));
+        cvPushDown(pos, b, oldBottom);
+        e.blocks.forEach(x => { if (pos.has(x.id)) x.y = pos.get(x.id).y; });
+      }
+      refresh(); cvCommit();
+    };
+    const text = (value, placeholder, max, oninput, extra) => h('input', { type: 'text', value, placeholder, maxlength: max, 'aria-label': placeholder, ...(extra || {}), oninput: ev => { oninput(ev.target.value); changed(); } });
+    const color = (value, oninput) => h('input', { type: 'color', value, title: '色', 'aria-label': '色', oninput: ev => { oninput(ev.target.value); changed(); } });
+    const styleSel = (value, onchange) => {
+      const s = h('select', { title: '模様', 'aria-label': '模様', onchange: ev => { onchange(ev.target.value); changed(); } },
+        ...CV_STYLES.map(o => h('option', { value: o.id }, o.name)));
+      s.value = value;
+      return s;
+    };
+    const delBtn = onclick => {
+      const x = h('button', { class: 'cv-x', type: 'button', title: 'この行を削除', 'aria-label': 'この行を削除', onclick });
+      x.textContent = '×';
+      return x;
+    };
+    const section = (label, ...kids) => h('div', { class: 'memo-section' }, label ? h('label', {}, label) : null, ...kids);
+
+    root.append(
+      h('div', { class: 'cv-edhead' },
+        h('strong', {}, CV_TYPES[b.type]),
+        h('button', { class: 'primary-btn', type: 'button', id: 'cv-done', onclick: cvCloseEditor }, '配置に戻る')),
+      preview,
+      section('タイトル', text(b.title, b.type === 'pie' ? '例：発電方法の割合' : b.type === 'bar' ? '例：輸出品の内訳' : '例：人口の推移', 60, v => { b.title = v; }))
+    );
+
+    if (b.type === 'trend') {
+      const list = h('div', { class: 'cv-rows' });
+      const rows = () => {
+        list.innerHTML = '';
+        b.rows.forEach((r, i) => {
+          list.append(h('div', { class: 'cv-row trend' },
+            text(r.x, '年・時期', 20, v => { r.x = v; }),
+            text(r.y === null ? '' : String(r.y), '数値', 20, v => { r.y = cvNum(v); }),
+            delBtn(() => { b.rows.splice(i, 1); rows(); changed(); })));
+        });
+      };
+      rows();
+      const add = h('button', { class: 'chip-btn cv-addrow', type: 'button', onclick: () => {
+        if (b.rows.length >= CV_MAX_ROWS) { showToast(`追加できるのは${CV_MAX_ROWS}行までです`); return; }
+        // 直前の2行が数字なら、次の年を入れておく
+        const [p, q] = b.rows.slice(-2).map(r => cvNum(r.x));
+        const next = p !== undefined && p !== null && q !== undefined && q !== null ? String(q + (q - p)) : '';
+        b.rows.push({ x: next, y: null }); rows(); changed();
+      } }, '＋ 行を追加');
+      root.append(
+        section('データ', list, add),
+        section('単位', text(b.unit, '例：億人', 16, v => { b.unit = v; })),
+        section('表示',
+          h('div', { class: 'cv-optrow' },
+            h('label', { class: 'cv-check' }, h('input', { type: 'checkbox', checked: b.zero, onchange: ev => { b.zero = ev.target.checked; changed(); } }), '縦軸を0から始める'),
+            h('span', { class: 'opt-label' }, '線の色'), color(b.color, v => { b.color = v; })))
+      );
+    } else {
+      const list = h('div', { class: 'cv-rows' });
+      const rows = () => {
+        list.innerHTML = '';
+        b.items.forEach((it, i) => {
+          list.append(h('div', { class: 'cv-row' },
+            color(it.color, v => { it.color = v; }),
+            styleSel(it.style, v => { it.style = v; }),
+            text(it.name, '項目名', 40, v => { it.name = v; }),
+            text(it.value === null ? '' : String(it.value), '0', 10, v => { const n = cvNum(v); it.value = n === null ? null : Math.max(0, n); }, { inputmode: 'decimal', class: 'cv-pct' }),
+            h('span', { class: 'cv-unit' }, '%'),
+            delBtn(() => { b.items.splice(i, 1); rows(); changed(); })));
+        });
+      };
+      rows();
+      const add = h('button', { class: 'chip-btn cv-addrow', type: 'button', onclick: () => {
+        if (b.items.length >= CV_MAX_ITEMS) { showToast(`追加できるのは${CV_MAX_ITEMS}項目までです`); return; }
+        b.items.push(blankItem(b.items.length)); rows(); changed();
+      } }, '＋ 項目を追加');
+      const r = b.rest;
+      root.append(
+        section('項目と割合', list, add, total),
+        section('残りの部分',
+          h('label', { class: 'cv-check' }, h('input', { type: 'checkbox', checked: r.show, onchange: ev => { r.show = ev.target.checked; changed(); } }), '残りを項目として表示する'),
+          h('div', { class: 'cv-row rest' },
+            color(r.color, v => { r.color = v; }),
+            styleSel(r.style, v => { r.style = v; }),
+            text(r.name, cvRestName(b.type), 40, v => { r.name = v; })))
+      );
+    }
+    refresh();
+  }
+
+  function bindCanvas() {
+    const stage = $('cv-stage');
+    stage.addEventListener('pointerdown', cvPointerDown);
+    stage.addEventListener('pointermove', cvPointerMove);
+    stage.addEventListener('pointerup', cvEndDrag);
+    stage.addEventListener('pointercancel', cvEndDrag);
+    stage.addEventListener('lostpointercapture', cvEndDrag);
+    $('cv-wrap').addEventListener('click', ev => {
+      if (!state.edit) return;
+      if (cvs.skipClick) { cvs.skipClick = false; return; }
+      const el = ev.target.closest('.cv-block');
+      cvSelect(el ? el.dataset.id : null);
+    });
+    stage.addEventListener('dblclick', ev => {
+      const t = document.elementFromPoint(ev.clientX, ev.clientY), el = t && t.closest('.cv-block');
+      if (el && state.edit) cvOpenEditor(el.dataset.id);
+    });
+    document.querySelector('.cv-tools').addEventListener('click', ev => {
+      const add = ev.target.closest('[data-add]');
+      if (add) cvAdd(add.dataset.add);
+    });
+    $('cv-snap').onclick = () => { cvs.snap = !cvs.snap; try { localStorage.setItem('wn-cv-snap', cvs.snap ? '1' : '0'); } catch { /* noop */ } cvUpdateTools(); };
+    $('cv-edit').onclick = () => cvOpenEditor(cvs.sel);
+    $('cv-front').onclick = () => cvRestack(true);
+    $('cv-back').onclick = () => cvRestack(false);
+    $('cv-del').onclick = cvDelete;
+    // パネルの幅が変わったら拡大率を合わせ直す
+    if (window.ResizeObserver) {
+      let last = 0;
+      new ResizeObserver(() => {
+        const w = $('cv-wrap').clientWidth;
+        if (w && w !== last) { last = w; if (!cvs.drag && state.panel === 'country') renderCanvas(); }
+      }).observe($('cv-wrap'));
+    }
   }
 
   /* =========================================================
@@ -3348,13 +4068,14 @@
 
     $('btn-close-country').onclick = () => closeMemo();
     $('country-memo').addEventListener('input', () => {
-      const key = state.selectedCountryKey; if (!key || !state.edit) return;
-      const v = $('country-memo').value;
-      if (v.trim()) state.countries[key] = { memo: v }; else delete state.countries[key];
-      renderMemoMarks();
-      saveSoon();
+      if (!state.selectedCountryKey || !state.edit) return;
+      const en = cvEntry(true);
+      en.memo = $('country-memo').value;
+      renderCanvas();
+      cvCommit();
     });
     $('btn-save-country').onclick = () => { if (!state.edit) return; save(); showToast('保存しました'); closeMemo(); };
+    bindCanvas();
 
     $('btn-close-note').onclick = () => closeMemo();
     $('note-text').addEventListener('input', () => {

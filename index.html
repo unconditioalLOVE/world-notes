@@ -248,20 +248,39 @@
           <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
       </div>
-      <div class="panel-body">
+      <div class="panel-body" id="country-body">
         <div class="view-card view-only">
           <h2 id="country-v-title"></h2>
-          <p id="country-v-memo" class="hidden"></p>
         </div>
-        <div class="edit-only">
-          <div class="memo-section">
+
+        <div id="cv-main">
+          <div class="memo-section edit-only">
             <label>メモ</label>
             <textarea id="country-memo" placeholder="この国についてのメモ..."></textarea>
-            <div class="btn-row">
-              <button id="btn-save-country" class="primary-btn">保存</button>
-            </div>
           </div>
-          <div class="memo-section">
+
+          <!-- 自由配置キャンバス（メモ＋グラフ） -->
+          <div class="cv-section">
+            <div class="cv-tools edit-only">
+              <div class="cv-toolrow">
+                <span class="opt-label">グラフを追加</span>
+                <button class="chip-btn" data-add="pie" type="button">円</button>
+                <button class="chip-btn" data-add="bar" type="button">棒</button>
+                <button class="chip-btn" data-add="trend" type="button">推移</button>
+                <button id="cv-snap" class="toggle" type="button" title="端や他の部品に軽く吸い付きます">吸着</button>
+              </div>
+              <div class="cv-toolrow cv-selrow">
+                <span id="cv-selname" class="opt-note">部品をタップして選ぶと、移動・大きさ変更ができます</span>
+                <button id="cv-edit" class="chip-btn hidden" type="button">中身を編集</button>
+                <button id="cv-front" class="chip-btn hidden" type="button">前面へ</button>
+                <button id="cv-back" class="chip-btn hidden" type="button">背面へ</button>
+                <button id="cv-del" class="chip-btn danger hidden" type="button">削除</button>
+              </div>
+            </div>
+            <div id="cv-wrap"><div id="cv-stage"></div></div>
+          </div>
+
+          <div class="memo-section edit-only">
             <label>国全体の塗り</label>
             <div class="fillrow">
               <div id="country-chips" class="chips compact"></div>
@@ -270,6 +289,12 @@
             <p class="note" id="country-layer-note"></p>
           </div>
         </div>
+
+        <!-- グラフの中身を編集 -->
+        <div id="cv-editor" class="edit-only hidden"></div>
+      </div>
+      <div class="cv-foot edit-only">
+        <button id="btn-save-country" class="primary-btn" type="button">保存</button>
       </div>
     </div>
 
