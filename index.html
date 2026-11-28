@@ -173,6 +173,14 @@
           <svg viewBox="0 0 24 24" class="icon"><path d="M4 7l5-2 6 2 5-2v12l-5 2-6-2-5 2V7zM9 5v12M15 7v12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>国メモ</span>
         </button>
+        <button id="view-stats" class="tab view-only" aria-label="世界統計">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M4 19V9M10 19V5M16 19v-7M22 19V11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>統計</span>
+        </button>
+        <button id="view-quiz" class="tab view-only" aria-label="クイズ">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M9 9a3 3 0 115.1 2.1C13.5 11.8 12 13 12 14.5V15M12 18.5v.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>クイズ</span>
+        </button>
         <div class="tab-sep"></div>
         <button id="btn-layers" class="tab" aria-label="レイヤー">
           <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l9 5-9 5-9-5 9-5zM3 14l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -363,6 +371,93 @@
             <button id="btn-import" class="chip-btn">復元</button>
           </div>
           <input type="file" id="file-import" accept=".json,application/json" class="hidden" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 世界統計パネル ===== -->
+    <div id="stats-panel" class="panel hidden">
+      <div class="panel-header">
+        <h3>世界統計</h3>
+        <button id="btn-close-stats" class="close-btn" aria-label="閉じる">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="panel-body" id="stats-body">
+        <div id="stats-list-view">
+          <div class="seg flex1" id="stats-field-tabs" role="tablist">
+            <button type="button" role="tab" data-field="crop" class="on">農作物</button>
+            <button type="button" role="tab" data-field="livestock">畜産物</button>
+            <button type="button" role="tab" data-field="mineral">鉱物資源</button>
+            <button type="button" role="tab" data-field="industry">工業製品</button>
+            <button type="button" role="tab" data-field="other">その他</button>
+          </div>
+          <div id="stats-item-list"></div>
+          <div class="cv-foot edit-only">
+            <button id="btn-add-stat-item" class="primary-btn" type="button">＋ 統計項目を追加</button>
+          </div>
+        </div>
+        <div id="stats-detail-view" class="hidden">
+          <button id="btn-stats-back" class="chip-btn" type="button">← 一覧に戻る</button>
+          <h2 id="stats-detail-title"></h2>
+          <div class="seg" id="stats-metric-tabs">
+            <button type="button" data-metric="production" class="on">生産量</button>
+            <button type="button" data-metric="export">輸出量</button>
+            <button type="button" data-metric="import">輸入量</button>
+          </div>
+          <div id="stats-rank-list"></div>
+          <div class="cv-foot edit-only">
+            <button id="btn-add-stat-rank" class="primary-btn" type="button">＋ 国を追加</button>
+            <button id="btn-edit-stat-meta" class="chip-btn" type="button">項目を編集</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== クイズパネル ===== -->
+    <div id="quiz-panel" class="panel hidden">
+      <div class="panel-header">
+        <h3>クイズ</h3>
+        <button id="btn-close-quiz" class="close-btn" aria-label="閉じる">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="panel-body" id="quiz-body">
+        <div id="quiz-home">
+          <p class="note">世界統計に登録されているデータから出題します。</p>
+          <div class="seg" id="quiz-mode-tabs">
+            <button type="button" data-qmode="table" class="on">表形式</button>
+            <button type="button" data-qmode="map">地図形式</button>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button id="btn-quiz-start" class="primary-btn" type="button">クイズを始める</button>
+            <button id="btn-quiz-review" class="chip-btn" type="button">要復習から出題</button>
+          </div>
+          <p id="quiz-stats-count" class="note" style="margin-top:8px"></p>
+        </div>
+        <div id="quiz-play" class="hidden">
+          <div id="quiz-question">
+            <div class="quiz-meta">
+              <span id="quiz-field"></span>
+              <span id="quiz-metric"></span>
+            </div>
+            <h2 id="quiz-item-name">？？？</h2>
+            <div id="quiz-table-view"></div>
+            <div id="quiz-map-view" class="hidden">
+              <svg id="quiz-map-svg"></svg>
+            </div>
+          </div>
+          <div id="quiz-actions" class="btn-row">
+            <button id="btn-quiz-reveal" class="primary-btn" type="button">答えを見る</button>
+            <button id="btn-quiz-end" class="chip-btn" type="button">終了</button>
+          </div>
+          <div id="quiz-result" class="hidden">
+            <p id="quiz-answer-text" class="quiz-answer"></p>
+            <div class="btn-row">
+              <button id="btn-quiz-ng" class="danger-btn" type="button">× 覚えていない</button>
+              <button id="btn-quiz-ok" class="primary-btn" type="button">○ 覚えた</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

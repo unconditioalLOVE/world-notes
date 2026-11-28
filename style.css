@@ -1083,3 +1083,25 @@ input[readonly], textarea[readonly] {
 #app:not(.edit) .rk-cats { padding-top: 0; }
 #app:not(.edit) .rk-cat:first-child { margin-top: 0; }
 #app:not(.edit) .rk-cat:first-child .rk-toggle { padding-top: 6px; }
+
+/* ---------- 世界統計・クイズ ---------- */
+#stats-panel .panel-body,
+#quiz-panel .panel-body { padding-bottom: 24px; }
+#stats-field-tabs,
+#stats-metric-tabs,
+#quiz-mode-tabs { margin: 8px 0 12px; flex-wrap: wrap; }
+#stats-item-list .rk-card,
+#stats-rank-list .rk-card { margin-bottom: 8px; }
+#stats-detail-title { font-size: 18px; margin: 8px 0 4px; }
+#btn-stats-back { margin-bottom: 8px; }
+.quiz-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.quiz-meta span { background: #f2f2f2; padding: 2px 8px; border-radius: 999px; }
+#quiz-item-name { font-size: 22px; margin: 4px 0 12px; letter-spacing: 0.04em; }
+.quiz-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.quiz-table th,
+.quiz-table td { border-bottom: 1px solid #eee; padding: 8px 6px; text-align: left; }
+.quiz-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.quiz-answer { font-size: 16px; font-weight: 600; margin: 12px 0; }
+#quiz-map-svg { width: 100%; height: auto; background: #fafafa; border-radius: 8px; border: 1px solid #eee; }
+#quiz-actions,
+#quiz-result .btn-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
