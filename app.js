@@ -3882,24 +3882,34 @@
       [st.qPool[i], st.qPool[j]] = [st.qPool[j], st.qPool[i]];
     }
     st.qIdx = -1;
-    setQuizPlaying(true);
-    $('quiz-home').classList.add('hidden');
+    st.quizPlaying = true;
+    $('app')?.classList.add('quiz-playing');
+    $('dock')?.classList.add('hidden');
+    $('quiz-home')?.classList.add('hidden');
     if (st.qMode === 'map') {
       // 地図形式：シートなし・機能バーなし・全画面地図＋フローティングボタン
-      $('quiz-panel').classList.add('hidden');
-      $('quiz-play').classList.add('hidden');
-      $('quiz-float').classList.remove('hidden');
-      $('app').classList.remove('panel-open');
-      state.panel = 'quiz'; // 状態はクイズのまま
-    } else {
-      $('quiz-play').classList.remove('hidden');
-      $('quiz-float').classList.add('hidden');
-      $('quiz-panel').classList.remove('hidden');
-      $('app').classList.add('panel-open');
+      $('quiz-panel')?.classList.add('hidden');
+      $('quiz-play')?.classList.add('hidden');
+      const fl = $('quiz-float');
+      if (fl) { fl.classList.remove('hidden'); fl.style.display = 'block'; }
+      $('app')?.classList.remove('panel-open');
       state.panel = 'quiz';
+    } else {
+      $('quiz-play')?.classList.remove('hidden');
+      $('quiz-float')?.classList.add('hidden');
+      $('quiz-panel')?.classList.remove('hidden');
+      $('app')?.classList.add('panel-open');
+      state.panel = 'quiz';
+      $('btn-close-quiz')?.classList.add('hidden');
     }
     if (typeof syncDock === 'function') syncDock();
-    nextQuiz();
+    try {
+      nextQuiz();
+    } catch (e) {
+      console.error('startQuiz', e);
+      showToast('クイズ開始に失敗しました');
+      endQuizToHome();
+    }
   }
 
   function endQuizToHome() {
@@ -3932,51 +3942,83 @@
   function renderQuizQuestion() {
     const q = st.qPool[st.qIdx];
     if (!q) return;
-    const sorted = [...q.block.ranks].sort((a, b) => (a.rank || 999) - (b.rank || 999)).slice(0, 5);
+    const ranks = (q.block && Array.isArray(q.block.ranks)) ? q.block.ranks : [];
+    const sorted = [...ranks].sort((a, b) => (a.rank || 999) - (b.rank || 999));
+    // 表形式は上位表示用、地図は全件で相対階級
 
     if (st.qMode === 'map') {
-      // 地図形式：数値表なし・シートなし。地図色分け＋フローティングボタンのみ
-      applyQuizMapMode(sorted);
-      $('quiz-panel').classList.add('hidden');
-      $('quiz-float').classList.remove('hidden');
-      $('quiz-float-answer').classList.add('hidden');
-      $('quiz-float-answer').textContent = '';
-      $('quiz-float-result').classList.add('hidden');
-      $('btn-quiz-reveal-float').classList.remove('hidden');
+      // 地図形式：数値表なし・シートなし。値の相対階級で色分け＋フローティングボタンのみ
+      try { applyQuizMapMode(ranks); } catch (e) { console.warn(e); }
+      const panel = $('quiz-panel');
+      if (panel) panel.classList.add('hidden');
+      const fl = $('quiz-float');
+      if (fl) {
+        fl.classList.remove('hidden');
+        fl.style.display = 'block';
+      }
+      const fa = $('quiz-float-answer');
+      if (fa) { fa.classList.add('hidden'); fa.textContent = ''; }
+      $('quiz-float-result')?.classList.add('hidden');
+      $('btn-quiz-reveal-float')?.classList.remove('hidden');
+      $('app')?.classList.remove('panel-open');
       return;
     }
 
     // 表形式
-    clearQuizMapMode();
-    $('quiz-float').classList.add('hidden');
-    $('quiz-panel').classList.remove('hidden');
-    $('quiz-field').textContent = FIELD_JA[q.item.field] || q.item.field;
-    $('quiz-metric').textContent = METRIC_JA[q.metric] || q.metric;
-    $('quiz-item-name').textContent = '？？？';
-    $('quiz-result').classList.add('hidden');
-    $('btn-quiz-reveal').classList.remove('hidden');
-    $('quiz-answer-text').textContent = '';
+    try { clearQuizMapMode(); } catch (e) { console.warn(e); }
+    $('quiz-float')?.classList.add('hidden');
+    const panel = $('quiz-panel');
+    if (panel) panel.classList.remove('hidden');
+    const play = $('quiz-play');
+    if (play) play.classList.remove('hidden');
+    $('quiz-home')?.classList.add('hidden');
+    $('app')?.classList.add('panel-open');
+
+    const fieldEl = $('quiz-field');
+    const metricEl = $('quiz-metric');
+    if (fieldEl) fieldEl.textContent = FIELD_JA[q.item.field] || q.item.field || '';
+    if (metricEl) metricEl.textContent = METRIC_JA[q.metric] || q.metric || '';
+    const nameEl = $('quiz-item-name');
+    if (nameEl) nameEl.textContent = '？？？';
+    $('quiz-result')?.classList.add('hidden');
+    $('btn-quiz-reveal')?.classList.remove('hidden');
+    const ans = $('quiz-answer-text');
+    if (ans) ans.textContent = '';
+
     const table = $('quiz-table-view');
+    if (!table) return;
     table.classList.remove('hidden');
-    table.innerHTML = '';
-    const tbl = h('table', { class: 'quiz-table' });
-    const thead = h('thead', {}, h('tr', {}, h('th', {}, '順位'), h('th', {}, '国'), h('th', {}, '数値')));
-    const tbody = h('tbody');
+    // innerHTMLで確実に表を描画（表示は上位を中心に、データは全件可）
+    let rows = '';
     sorted.forEach(r => {
-      tbody.append(h('tr', {},
-        h('td', {}, String(r.rank || '—')),
-        h('td', {}, countryNameByKey(r.countryKey)),
-        h('td', {}, [r.value, q.block.unit].filter(Boolean).join(' '))
-      ));
+      const rank = (r.rank != null) ? String(r.rank) : '—';
+      const cname = countryNameByKey(r.countryKey);
+      const val = [r.value, q.block.unit].filter(Boolean).join(' ');
+      rows += `<tr><td>${rank}</td><td>${cname}</td><td>${val}</td></tr>`;
     });
-    tbl.append(thead, tbody);
-    table.append(tbl);
-    if (q.block.year || q.block.source) {
-      table.append(h('p', { class: 'note' }, [q.block.year && `${q.block.year}年`, q.block.source && `出典: ${q.block.source}`].filter(Boolean).join(' ／ ')));
-    }
+    const meta = [q.block.year && `${q.block.year}年`, q.block.source && `出典: ${q.block.source}`].filter(Boolean).join(' ／ ');
+    table.innerHTML =
+      `<table class="quiz-table"><thead><tr><th>順位</th><th>国</th><th>数値</th></tr></thead><tbody>${rows || '<tr><td colspan="3">データなし</td></tr>'}</tbody></table>` +
+      (meta ? `<p class="note">${meta}</p>` : '');
   }
 
-  // クイズ地図：メイン地図のみ。ユーザーレイヤー・川・気候・ピン・落書きはすべて非表示
+  // 数値文字列をパース（「約3700」「2.1億」などは可能な範囲で）
+  function parseStatValue(v) {
+    if (v == null) return NaN;
+    if (typeof v === 'number' && isFinite(v)) return v;
+    let s = String(v).trim().replace(/,/g, '').replace(/约|約|前後|超|以上|以下/g, '');
+    if (!s) return NaN;
+    // 億・万
+    const oku = s.match(/([\d.]+)\s*億/);
+    if (oku) return parseFloat(oku[1]) * 1e8;
+    const man = s.match(/([\d.]+)\s*万/);
+    if (man) return parseFloat(man[1]) * 1e4;
+    const m = s.match(/-?[\d.]+/);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+
+  // クイズ地図：値の相対階級（5段階）。色は最大→最小
+  // #A94370 / #D8759D / #EBA6C1 / #F5CEDD / #FCEEF3
   function applyQuizMapMode(ranks) {
     st.quizMapOn = true;
     document.getElementById('app')?.classList.add('quiz-map-mode');
@@ -3989,14 +4031,49 @@
       [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = 'none'; });
       const guides = document.getElementById('svg-guides');
       if (guides) guides.style.display = 'none';
-      const rankMap = Object.fromEntries((ranks || []).map(r => [r.countryKey, r.rank]));
-      const colors = ['#1a1a1a', '#3a3a3a', '#5a5a5a', '#7a7a7a', '#9a9a9a'];
+
+      const COLORS = ['#A94370', '#D8759D', '#EBA6C1', '#F5CEDD', '#FCEEF3']; // 最大→最小
+      const NO_DATA = '#ffffff';
+
+      // 全登録国の数値を集める（5件制限なし）
+      const valueByKey = {};
+      const nums = [];
+      (ranks || []).forEach(r => {
+        if (!r || !r.countryKey) return;
+        const n = parseStatValue(r.value);
+        if (isFinite(n)) {
+          valueByKey[r.countryKey] = n;
+          nums.push(n);
+        } else {
+          // 数値なしでも登録国としてマーク（最浅クラス）
+          valueByKey[r.countryKey] = null;
+        }
+      });
+
+      let vmin = 0, vmax = 1;
+      if (nums.length) {
+        vmin = Math.min(...nums);
+        vmax = Math.max(...nums);
+        if (vmin === vmax) { vmin = vmax - 1; } // 全部同じ値でも階級を付ける
+      }
+
+      // 等間隔5階級：値が大きいほど濃い色（index 0）
+      const classIndex = (n) => {
+        if (!isFinite(n) || nums.length === 0) return COLORS.length - 1;
+        const t = (n - vmin) / (vmax - vmin); // 0..1
+        const idx = Math.min(COLORS.length - 1, Math.max(0, Math.floor((1 - t) * COLORS.length)));
+        // t=1(最大) → 0、t=0(最小) → 4
+        return idx;
+      };
+
       svgBase.selectAll('path.country')
-        .classed('quiz-rank', d => !!(d && rankMap[d._key]))
+        .classed('quiz-rank', d => !!(d && Object.prototype.hasOwnProperty.call(valueByKey, d._key)))
         .style('fill', d => {
-          if (!d) return '#e8e8e8';
-          const rk = rankMap[d._key];
-          return rk ? colors[Math.min((rk || 1) - 1, 4)] : '#e8e8e8';
+          if (!d) return NO_DATA;
+          if (!Object.prototype.hasOwnProperty.call(valueByKey, d._key)) return NO_DATA;
+          const n = valueByKey[d._key];
+          if (n == null || !isFinite(n)) return COLORS[COLORS.length - 1];
+          return COLORS[classIndex(n)];
         });
     } catch (e) {
       console.warn('applyQuizMapMode', e);
@@ -5031,12 +5108,25 @@
     finalizeText();
     if (state.edit) save();
     closeMemo();
+    // クイズ中／クイズパネル表示中に編集へ入ったらクイズを閉じる
+    if (on && (st.quizPlaying || state.panel === 'quiz')) {
+      try { clearQuizMapMode(); } catch (_) {}
+      try { setQuizPlaying(false); } catch (_) {}
+      $('quiz-float')?.classList.add('hidden');
+      $('quiz-play')?.classList.add('hidden');
+      $('quiz-home')?.classList.remove('hidden');
+      if (state.panel === 'quiz') setPanel(null);
+    }
     state.edit = on;
     state.lassoKey = null;
     if (on) state.tool = 'pin';          // 編集を開くたびに「ピン」から始める
     updateUI();
     renderHighlight();
     if (state.panel === 'layer') renderLayers();
+    if (state.panel === 'stats') {
+      if (st.itemId) openStatDetail(st.itemId);
+      else renderStatsList();
+    }
     if (!on) applyUpdate();
   }
 

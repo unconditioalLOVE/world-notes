@@ -1247,3 +1247,27 @@ input[readonly], textarea[readonly] {
 #app.quiz-map-mode #svg-base .climate {
   display: none !important;
 }
+
+/* クイズフロート：確実に最前面 */
+#quiz-float {
+  z-index: 200 !important;
+  pointer-events: auto;
+}
+#quiz-float:not(.hidden) {
+  display: block !important;
+}
+#app.quiz-playing #dock {
+  display: none !important;
+}
+/* 表形式クイズ中もパネル内スクロール */
+#quiz-play:not(.hidden) {
+  display: block;
+}
+#quiz-table-view {
+  width: 100%;
+  overflow-x: auto;
+}
+#quiz-table-view .quiz-table {
+  width: 100%;
+  min-width: 240px;
+}
