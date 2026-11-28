@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-28-v29';
+  const BUILD = '2026-11-28-v30';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -624,6 +624,13 @@
   }
 
 
+  /* 同期していない変更の有無（フォルダの開閉は内容の変更に数えない） */
+  let saved = null;       // 直近に保存した内容 [ノート, ランキング]
+  const signature = () => [
+    JSON.stringify([state.pins, state.layers, state.folders.map(({ open, ...f }) => f), state.order, state.countries, state.guides, state.showRivers, state.showClimate]),
+    JSON.stringify(state.rankings)
+  ];
+
   function save() {
     clearTimeout(saveTimer);
     try {
@@ -631,7 +638,10 @@
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
       }));
       localStorage.setItem(RANK_KEY, JSON.stringify(state.rankings));
-      if (sync.on) markDirty();
+      const now = signature();
+      const note = !saved || now[0] !== saved[0], rank = !saved || now[1] !== saved[1];
+      saved = now;
+      if (note || rank) markDirty(note);
     } catch {
       showToast('保存に失敗しました（容量不足の可能性）');
     }
@@ -679,6 +689,9 @@
     applyData(d);
     // 世界ランキングはノートと別の保存キー
     try { state.rankings = cleanRankings(JSON.parse(localStorage.getItem(RANK_KEY))); } catch { state.rankings = {}; }
+    // 旧版には「ノートの未同期」の記録がないので、全体の記録を引き継ぐ
+    try { if (localStorage.getItem('wn-note-dirty') === null) localStorage.setItem('wn-note-dirty', localStorage.getItem('wn-sync-dirty') || '0'); } catch { /* noop */ }
+    saved = migrated ? null : signature();
     if (migrated) save();
   }
 
@@ -3063,15 +3076,30 @@
     if (rk.tab === 'rank' && !rk.form && !rk.drag) renderRank();
     else if (rk.tab === 'note' && !cvs.editing && !cvs.drag) renderCanvas();
   }
+  // この端末に、クラウドにはまだないランキングの変更があるか
+  function rkAhead(src) {
+    const remote = cleanRankings(src);
+    return Object.entries(state.rankings).some(([k, l]) => {
+      const r = remote[k];
+      if (!r) return l.items.length > 0 || Object.keys(l.del).length > 0;
+      const times = new Map(r.items.map(i => [i.id, i.t]));
+      return l.ot > r.ot || l.items.some(i => times.get(i.id) !== i.t) || Object.entries(l.del).some(([id, t]) => !(r.del[id] >= t));
+    });
+  }
   // クラウドにあるランキングだけを読んで合流させる（ノートには触れない）
   async function mergeCloudRankings(head) {
-    if (!head || !head.n) return;
+    const res = { got: false, ahead: false };
+    if (!head || !head.n) return res;
     const docs = await Promise.all(Array.from({ length: head.n }, (_, i) => sync.ref.doc('c' + i).get()));
-    if (docs.some(d => !d.exists)) return;
+    if (docs.some(d => !d.exists)) return res;
     let d;
-    try { d = JSON.parse(docs.map(x => x.data().s).join('')); } catch { return; }
-    if (mergeRankings(d.rankings)) rkReceived();
+    try { d = JSON.parse(docs.map(x => x.data().s).join('')); } catch { return res; }
+    res.got = mergeRankings(d.rankings);
+    if (res.got) { rkReceived(); if (saved) saved[1] = JSON.stringify(state.rankings); }
+    res.ahead = rkAhead(d.rankings);
+    if (res.ahead) lsSet('wn-sync-dirty', '1');          // 送れなかった場合も次の同期で送る
     lsSet('wn-rank-rev', head.rev);
+    return res;
   }
   const rkHas = key => !!(state.rankings[key] && state.rankings[key].items.length);
   const rkLabel = it => (it.type === 'その他' || it.name.endsWith(it.type) ? it.name : it.name + it.type);
@@ -4549,7 +4577,7 @@
         const { rankings, ...notes } = d;
         localStorage.setItem(KEY, JSON.stringify(notes));
         if (rankings !== undefined) localStorage.setItem(RANK_KEY, JSON.stringify(rkRestore(rankings)));   // 古いバックアップならランキングは残す
-        lsSet('wn-sync-dirty', '1');          // 復元した内容を次の同期でクラウドへ送る
+        markDirty(true);                      // 復元した内容を次の同期でクラウドへ送る
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
     };
@@ -4562,9 +4590,9 @@
       if (!sync.on) { showToast('同期の準備中です。少し待ってからもう一度お試しください'); return; }
       if (!confirm('この端末の内容でクラウドを上書きします。他の端末の内容は置き換わります。よろしいですか？')) return;
       save();
-      sync.ver++; lsSet('wn-sync-dirty', '1');
+      markDirty(true);
       const ok = await push();
-      showToast(ok ? 'クラウドを上書きしました。ログイン中の他の端末にも反映されます' : ('送信失敗：' + (sync.extra || sync.status)));
+      showToast(ok ? 'クラウドを上書きしました。他の端末は「今すぐ同期」で反映されます' : ('送信失敗：' + (sync.extra || sync.status)));
     };
     $('btn-update').onclick = () => { save(); location.reload(); };
 
@@ -4599,7 +4627,8 @@
   function renderSyncPanel() {
     const T = {
       unconfigured: '未設定です。firebase-config.js に Firebase の設定値を入れると使えます。',
-      signedout: 'ログイン後、同期・上書きが使えます。他端末の上書きは自動で取り込まれます。',
+      signedout: 'ログイン後、同期・上書きが使えます。同期はボタンを押した時だけ行います。',
+      ready: 'ログイン中。「今すぐ同期」を押すと同期します。',
       syncing: '同期中…', ok: '同期済み ' + sync.extra,
       offline: 'オフラインです（オンラインにしてから「同期」を押してください）', error: '同期エラー：' + sync.extra
     };
@@ -4629,39 +4658,38 @@
       const snap = await sync.ref.doc('head').get();
       const remote = snap.exists ? snap.data() : null;
       const dirty = lsGet('wn-sync-dirty', '0') === '1';
+      const say = m => { if (toast) showToast(m); };
+      const send = async m => { const ok = await push(); say(ok ? m : '送信に失敗しました'); };
       if (!remote) {
         // クラウドが空 → アップロード
-        const ok = await push();
-        if (toast) showToast(ok ? 'クラウドに保存しました' : '送信に失敗しました');
+        await send('クラウドに保存しました');
         return;
       }
-      if (remote.rev > sync.rev && !dirty) {
-        // クラウドが新しい → 取り込む
-        await pullFrom(remote);
-        if (toast) showToast(sync.status === 'ok' ? 'クラウドから取り込みました' : '取り込みに失敗しました');
-        return;
-      }
-      if (remote.rev > sync.rev && dirty) {
-        // 両方更新あり → 確認
-        const choice = confirm('この端末とクラウドの両方に変更があります。\\nOK：この端末の内容で上書き\\nキャンセル：クラウドの内容を取り込む');
-        if (choice) {
-          const ok = await push();
-          if (toast) showToast(ok ? 'クラウドを上書きしました' : '送信に失敗しました');
-        } else {
-          lsSet('wn-sync-dirty', '0');
-          await pullFrom(remote);
-          if (toast) showToast(sync.status === 'ok' ? 'クラウドから取り込みました' : '取り込みに失敗しました');
+      if (remote.rev > sync.rev) {
+        // クラウドが新しい。この端末にも未同期のノートがある（または初回で中身がある）なら確認
+        const conflict = lsGet('wn-note-dirty', '0') === '1' || (!sync.rev && hasLocalData());
+        if (conflict && confirm('この端末とクラウドの両方に、まだ同期していない内容があります。\nOK：この端末の内容でクラウドを上書き\nキャンセル：クラウドの内容を取り込む（この端末だけのメモや書き込みは消えます）')) {
+          await send('クラウドを上書きしました');
+          return;
         }
+        const ahead = await pullFrom(remote);
+        // この端末にしかないランキングは、合流した結果をそのまま送る
+        if (ahead) await send('同期しました');
+        else say(sync.status === 'ok' ? 'クラウドから取り込みました' : '取り込みに失敗しました');
         return;
       }
-      // ローカルが同じか新しい（dirty）→ 必要なら送る
       if (dirty || remote.rev < sync.rev) {
-        const ok = await push();
-        if (toast) showToast(ok ? '同期しました' : '送信に失敗しました');
-      } else {
-        setSyncStatus('ok', hhmm());
-        if (toast) showToast('すでに最新です');
+        await send('同期しました');
+        return;
       }
+      // 版は同じでもランキングを未受信なら受け取る（旧版のうちに取り込んだ端末向け）
+      if (String(remote.rev) !== lsGet('wn-rank-rev', '')) {
+        const r = await mergeCloudRankings(remote);
+        if (r.ahead) { await send('同期しました'); return; }
+        if (r.got) { setSyncStatus('ok', hhmm()); say('クラウドから取り込みました'); return; }
+      }
+      setSyncStatus('ok', hhmm());
+      say('すでに最新です');
     } catch (e) {
       const msg = (e && e.message) || String(e);
       console.error('[syncNow]', e);
@@ -4670,12 +4698,10 @@
     }
   }
 
-  function markDirty() { sync.ver++; lsSet('wn-sync-dirty', '1'); /* 自動送信しない。同期ボタンでのみ送る */ }
-  function scheduleUpload(ms) {
-    /* リアルタイム／自動同期はしない。同期ボタンのみ */
-  }
+  // 自動では送受信しない。同期ボタンを押すまで「未同期」の印を付けておくだけ
+  function markDirty(note) { sync.ver++; if (note) lsSet('wn-note-dirty', '1'); lsSet('wn-sync-dirty', '1'); }
 
-  const hasLocalData = () => state.pins.length || Object.keys(state.countries).length || Object.keys(state.rankings).length ||
+  const hasLocalData = () => state.pins.length || Object.keys(state.countries).length || state.folders.length || state.layers.length > 1 ||
     state.layers.some(l => l.strokes.length || l.fills.length || l.stamps.length || l.texts.length || l.notes.length);
 
   async function push() {
@@ -4715,7 +4741,7 @@
         await b.commit();
       }
       sync.rev = rev; sync.lastN = n; lsSet('wn-sync-rev', rev); lsSet('wn-rank-rev', rev);
-      if (sync.ver === v) lsSet('wn-sync-dirty', '0');
+      if (sync.ver === v) { lsSet('wn-sync-dirty', '0'); lsSet('wn-note-dirty', '0'); }
       ok = true;
       setSyncStatus('ok', hhmm());
     } catch (e) {
@@ -4750,12 +4776,15 @@
       try { if (typeof mcache !== 'undefined' && mcache.clear) mcache.clear(); } catch (e) {}
       if (typeof invalidateStrokeCache === 'function') invalidateStrokeCache();
       applyData(d);
+      saved = signature();
+      const ahead = rkAhead(d.rankings);
       lsSet(RANK_KEY, JSON.stringify(state.rankings));
       lsSet(KEY, JSON.stringify({
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order,
         countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
       }));
-      sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0'); lsSet('wn-rank-rev', h.rev);
+      sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-rank-rev', h.rev);
+      lsSet('wn-note-dirty', '0'); lsSet('wn-sync-dirty', ahead ? '1' : '0');
       if (dataReady) {
         applyGuides();
         try {
@@ -4767,6 +4796,7 @@
         if (state.panel === 'layer') renderLayers();
       }
       setSyncStatus('ok', hhmm());
+      return ahead;
     } catch (e) {
       console.error('[sync pull]', e);
       setSyncStatus('error', (e && e.message) || String(e));
@@ -4783,61 +4813,17 @@
       lsSet('wn-sync-rev', 0);
       lsSet('wn-rank-rev', '');
       lsSet('wn-sync-dirty', '0');
+      lsSet('wn-note-dirty', '0');
       lsSet('wn-sync-user', user.uid);
     }
-    if (sync.unsub) { sync.unsub(); sync.unsub = null; }
     sync.on = true;
-    // 送信は手動（同期／上書き）。受信だけ監視して他端末の上書きを取り込む
-    sync.unsub = sync.ref.doc('head').onSnapshot(snap => {
-      if (!snap.exists) return;
-      const h = snap.data();
-      if (!h || !h.rev) return;
-      // 取り込み済みの版でも、ランキングを未受信なら受け取る（旧版のうちに同期した端末向け）
-      if (h.rev <= sync.rev && String(h.rev) !== lsGet('wn-rank-rev', '')) mergeCloudRankings(h).catch(err => console.warn('[rank sync]', err));
-      // 自分の端末からの書き込みは無視
-      if (h.by === DEVICE) {
-        if (h.rev > sync.rev) {
-          sync.rev = h.rev;
-          sync.lastN = h.n || 0;
-          lsSet('wn-sync-rev', h.rev);
-        }
-        return;
-      }
-      if (h.rev <= sync.rev) return;
-      if (sync.busy || sync.pulling) return;
-      // 操作中なら少し待ってから取り込む
-      const tryPull = async () => {
-        if (!sync.on || !sync.ref) return;
-        if (h.rev <= sync.rev) return;
-        if (sync.busy || sync.pulling) {
-          setTimeout(tryPull, 600);
-          return;
-        }
-        if (remoteBlocked()) {
-          setTimeout(tryPull, 800);
-          return;
-        }
-        try {
-          setSyncStatus('syncing');
-          // 他端末の新しい内容を優先（上書きを反映）
-          lsSet('wn-sync-dirty', '0');
-          await pullFrom(h);
-          showToast('他の端末の内容を取り込みました');
-        } catch (e) {
-          setSyncStatus('error', (e && e.message) || '');
-        }
-      };
-      tryPull();
-    }, err => {
-      setSyncStatus('error', (err && err.message) || '監視エラー');
-    });
-    setSyncStatus('ok', 'ログイン済み');
+    // クラウドの監視はしない。送受信は「今すぐ同期」「上書き」を押した時だけ
+    setSyncStatus('ready');
   }
 
   function stopSync() {
     sync.on = false; sync.user = null; sync.ref = null;
     clearTimeout(sync.timer); sync.timer = null;
-    if (sync.unsub) { sync.unsub(); sync.unsub = null; }
     setSyncStatus('signedout');
   }
 
