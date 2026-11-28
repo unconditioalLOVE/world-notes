@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-28-v26';
+  const BUILD = '2026-11-28-v27';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;

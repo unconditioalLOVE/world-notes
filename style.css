@@ -1066,3 +1066,10 @@ input[readonly], textarea[readonly] {
 .rk-withunit span { font-size: 13px; color: var(--muted); }
 .rk-submit { padding: 14px 16px; }
 .rk-submit .primary-btn { width: 100%; }
+
+/* ---------- 国メモ（通常表示）：国名と本文の間を詰める ---------- */
+#country-panel .view-card, #country-panel #rank-body .view-card { padding-bottom: 0; }
+#app:not(.edit) #cv-wrap { margin-top: 0; }
+#app:not(.edit) .rk-cats { padding-top: 0; }
+#app:not(.edit) .rk-cat:first-child { margin-top: 0; }
+#app:not(.edit) .rk-cat:first-child .rk-toggle { padding-top: 6px; }
