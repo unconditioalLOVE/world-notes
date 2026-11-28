@@ -1205,3 +1205,42 @@ input[readonly], textarea[readonly] {
     max-height: calc(100% - var(--tabs-h, 90px) - 8px);
   }
 }
+
+/* クイズ再生中：機能バー非表示 */
+#app.quiz-playing #dock { display: none !important; }
+
+/* 地図形式：フローティング操作バー */
+#quiz-float {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 16px;
+  z-index: 60;
+  background: var(--panel, #fff);
+  border: 1px solid #e6e6e6;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.12);
+  padding: 12px 14px;
+}
+#quiz-float .btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#quiz-float .btn-row button {
+  flex: 1 1 auto;
+  min-width: 7em;
+}
+#quiz-float-answer {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+#quiz-float-result { margin-top: 10px; }
+
+/* クイズ地図：川・ガイドも含めレイヤー非表示 */
+#app.quiz-map-mode #svg-lines .rivers,
+#app.quiz-map-mode #svg-guides {
+  display: none !important;
+}

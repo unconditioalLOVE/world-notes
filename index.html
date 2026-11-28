@@ -449,12 +449,11 @@
             </div>
             <h2 id="quiz-item-name" style="margin:8px 0 12px;font-size:20px;font-weight:700">？？？</h2>
             <div id="quiz-table-view"></div>
-            <div id="quiz-map-view" class="hidden"></div>
           </div>
           <div class="memo-section" id="quiz-actions">
             <div class="btn-row">
-              <button id="btn-quiz-reveal" class="primary-btn" type="button">答えを見る</button>
               <button id="btn-quiz-end" class="chip-btn" type="button">終了</button>
+              <button id="btn-quiz-reveal" class="primary-btn" type="button">答えを見る</button>
             </div>
           </div>
           <div class="memo-section hidden" id="quiz-result">
@@ -464,6 +463,20 @@
               <button id="btn-quiz-ok" class="primary-btn" type="button">○ 覚えた</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+    <!-- 地図形式クイズ用：フローティング操作バー（シートなし） -->
+    <div id="quiz-float" class="hidden">
+      <div id="quiz-float-answer" class="hidden"></div>
+      <div class="btn-row">
+        <button id="btn-quiz-end-float" class="chip-btn" type="button">終了</button>
+        <button id="btn-quiz-reveal-float" class="primary-btn" type="button">答えを見る</button>
+      </div>
+      <div id="quiz-float-result" class="hidden">
+        <div class="btn-row">
+          <button id="btn-quiz-ng-float" class="danger-btn" type="button">× 覚えていない</button>
+          <button id="btn-quiz-ok-float" class="primary-btn" type="button">○ 覚えた</button>
         </div>
       </div>
     </div>
