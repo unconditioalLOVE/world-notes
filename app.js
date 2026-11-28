@@ -697,14 +697,14 @@
     // 世界統計
     try {
       const s = JSON.parse(localStorage.getItem(STATS_KEY));
-      state.stats = (s && typeof s === 'object') ? { items: s.items || {}, data: s.data || {} } : { items: {}, data: {} };
-    } catch { state.stats = { items: {}, data: {} }; }
+      state.stats = (s && typeof s === 'object') ? { v: s.v || 0, items: s.items || {}, data: s.data || {} } : { v: 0, items: {}, data: {} };
+    } catch { state.stats = { v: 0, items: {}, data: {} }; }
     try {
       const r = JSON.parse(localStorage.getItem(QUIZ_REVIEW_KEY));
       state.quizReview = Array.isArray(r) ? r.filter(x => typeof x === 'string') : [];
     } catch { state.quizReview = []; }
-    // 初期データが空ならシード
-    if (!Object.keys(state.stats.items).length) seedInitialStats();
+    // 初期データが空、または旧シード（数値ほぼ未入力）なら再シード
+    if (!Object.keys(state.stats.items).length || (state.stats.v || 0) < 2) seedInitialStats();
     saved = migrated ? null : signature();
     if (migrated) save();
   }
@@ -3423,7 +3423,8 @@
   };
 
   function seedInitialStats() {
-    // 地理学習で重要な項目のみ。確認できる出典付きの代表値を登録（未確認は入れない）
+    // 1品目=1項目。生産量・輸出量・輸入量は同一項目の中の指標として持つ
+    // 数値は概数（学習用）。出典・年度付き。確認しづらいものは入れない
     const items = [
       { id: 'S_rice', name: '米', field: 'crop' },
       { id: 'S_wheat', name: '小麦', field: 'crop' },
@@ -3434,7 +3435,7 @@
       { id: 'S_tea', name: '茶', field: 'crop' },
       { id: 'S_sugarcane', name: 'サトウキビ', field: 'crop' },
       { id: 'S_cotton', name: '綿花', field: 'crop' },
-      { id: 'S_palm', name: '油やし（パーム油）', field: 'crop' },
+      { id: 'S_palm', name: 'パーム油', field: 'crop' },
       { id: 'S_cattle', name: '牛（飼育頭数）', field: 'livestock' },
       { id: 'S_pig', name: '豚（飼育頭数）', field: 'livestock' },
       { id: 'S_chicken', name: '鶏（飼育羽数）', field: 'livestock' },
@@ -3452,36 +3453,79 @@
       { id: 'S_cement', name: 'セメント', field: 'industry' }
     ];
     const data = {};
-    // 代表的な生産量ランキング（単位・年度・出典付き。数値は概数）
-    const ranks = (list) => list.map((r, i) => ({ countryKey: r[0], value: r[1], rank: i + 1 }));
+    const ranks = (list) => list.map((r, i) => ({ countryKey: r[0], value: String(r[1]), rank: i + 1 }));
     const put = (id, metric, unit, year, source, list) => {
       if (!data[id]) data[id] = {};
       data[id][metric] = { unit, year, source, ranks: ranks(list) };
     };
-    // 国キーは既存マップの ISO_A3 相当（アプリ内キーに合わせる）
-    put('S_rice', 'production', '百万トン', '2022', 'FAOSTAT',
-      [['CHN', '2.1億t超'], ['IND', '1.3億t前後'], ['BGD', ''], ['IDN', ''], ['VNM', '']]);
-    // 値が不確かなものは空文字にして順位のみ、または登録しない方針に従い、確認しやすいもの中心に
-    // コーヒー豆（生産量）は有名なので登録
-    put('S_coffee', 'production', '千トン', '2022/23', 'ICO / USDA',
-      [['BRA', '約3700'], ['VNM', '約1800'], ['COL', '約1100'], ['IDN', '約700'], ['ETH', '約500']]);
-    put('S_wheat', 'production', '百万トン', '2022', 'FAOSTAT',
-      [['CHN', ''], ['IND', ''], ['RUS', ''], ['USA', ''], ['FRA', '']]);
-    put('S_maize', 'production', '百万トン', '2022', 'FAOSTAT',
-      [['USA', ''], ['CHN', ''], ['BRA', ''], ['ARG', ''], ['UKR', '']]);
-    put('S_soy', 'production', '百万トン', '2022', 'FAOSTAT',
-      [['BRA', ''], ['USA', ''], ['ARG', ''], ['CHN', ''], ['IND', '']]);
-    put('S_iron', 'production', '百万トン', '2022', 'USGS',
-      [['AUS', ''], ['BRA', ''], ['CHN', ''], ['IND', ''], ['RUS', '']]);
-    put('S_steel', 'production', '百万トン', '2023', 'World Steel Association',
-      [['CHN', ''], ['IND', ''], ['JPN', ''], ['USA', ''], ['RUS', '']]);
-    put('S_auto', 'production', '万台', '2023', 'OICA',
-      [['CHN', ''], ['USA', ''], ['JPN', ''], ['IND', ''], ['KOR', '']]);
-    put('S_lithium', 'production', 'トン（金属換算）', '2023', 'USGS',
-      [['AUS', ''], ['CHL', ''], ['CHN', ''], ['ARG', ''], ['BRA', '']]);
 
-    state.stats = { items: Object.fromEntries(items.map(i => [i.id, i])), data };
-    // 既存の国別ランキングへも反映
+    // 農作物
+    put('S_rice', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['CHN', '214'], ['IND', '135'], ['BGD', '57'], ['IDN', '55'], ['VNM', '43']]);
+    put('S_wheat', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['CHN', '138'], ['IND', '108'], ['RUS', '102'], ['USA', '45'], ['FRA', '34']]);
+    put('S_maize', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['USA', '349'], ['CHN', '277'], ['BRA', '116'], ['ARG', '60'], ['UKR', '26']]);
+    put('S_soy', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['BRA', '153'], ['USA', '116'], ['ARG', '44'], ['CHN', '20'], ['IND', '12']]);
+    put('S_soy', 'export', '百万トン', '2022', 'UN Comtrade / USDA',
+      [['BRA', '79'], ['USA', '54'], ['ARG', '3'], ['PRY', '6'], ['CAN', '4']]);
+    put('S_coffee', 'production', '千トン', '2022/23', 'ICO / USDA',
+      [['BRA', '3700'], ['VNM', '1800'], ['COL', '1100'], ['IDN', '700'], ['ETH', '500']]);
+    put('S_coffee', 'export', '千トン', '2022', 'ICO',
+      [['BRA', '2400'], ['VNM', '1600'], ['COL', '700'], ['IDN', '400'], ['HND', '300']]);
+    put('S_cacao', 'production', '千トン', '2022', 'FAOSTAT / ICCO',
+      [['CIV', '2200'], ['GHA', '800'], ['IDN', '600'], ['ECU', '350'], ['CMR', '300']]);
+    put('S_tea', 'production', '千トン', '2022', 'FAOSTAT',
+      [['CHN', '3100'], ['IND', '1300'], ['KEN', '500'], ['LKA', '300'], ['TUR', '280']]);
+    put('S_sugarcane', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['BRA', '724'], ['IND', '439'], ['CHN', '109'], ['THA', '92'], ['PAK', '88']]);
+    put('S_cotton', 'production', '百万トン', '2022', 'USDA',
+      [['CHN', '6.0'], ['IND', '5.3'], ['USA', '3.2'], ['BRA', '3.0'], ['PAK', '1.3']]);
+    put('S_palm', 'production', '百万トン', '2022', 'USDA',
+      [['IDN', '46'], ['MYS', '18'], ['THA', '3'], ['COL', '2'], ['NGA', '1']]);
+    put('S_palm', 'export', '百万トン', '2022', 'USDA',
+      [['IDN', '28'], ['MYS', '15'], ['THA', '1'], ['COL', '1'], ['PNG', '0.7']]);
+
+    // 畜産
+    put('S_cattle', 'production', '百万頭', '2022', 'FAOSTAT',
+      [['BRA', '230'], ['IND', '190'], ['USA', '92'], ['CHN', '60'], ['ETH', '65']]);
+    put('S_pig', 'production', '百万頭', '2022', 'FAOSTAT',
+      [['CHN', '450'], ['USA', '75'], ['BRA', '43'], ['ESP', '34'], ['DEU', '22']]);
+    put('S_chicken', 'production', '億羽', '2022', 'FAOSTAT',
+      [['CHN', '52'], ['IDN', '38'], ['USA', '19'], ['BRA', '15'], ['PAK', '14']]);
+    put('S_beef', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['USA', '12.7'], ['BRA', '10.4'], ['CHN', '7.2'], ['IND', '4.3'], ['ARG', '3.2']]);
+    put('S_milk', 'production', '百万トン', '2022', 'FAOSTAT',
+      [['IND', '221'], ['USA', '102'], ['PAK', '62'], ['CHN', '39'], ['BRA', '36']]);
+
+    // 鉱物
+    put('S_iron', 'production', '百万トン', '2022', 'USGS',
+      [['AUS', '880'], ['BRA', '410'], ['CHN', '280'], ['IND', '250'], ['RUS', '95']]);
+    put('S_iron', 'export', '百万トン', '2022', 'USGS / UN Comtrade',
+      [['AUS', '870'], ['BRA', '340'], ['ZAF', '60'], ['CAN', '55'], ['UKR', '30']]);
+    put('S_copper', 'production', '百万トン（鉱山）', '2022', 'USGS',
+      [['CHL', '5.3'], ['PER', '2.4'], ['CHN', '1.9'], ['COD', '1.8'], ['USA', '1.3']]);
+    put('S_bauxite', 'production', '百万トン', '2022', 'USGS',
+      [['AUS', '100'], ['CHN', '90'], ['GIN', '85'], ['BRA', '32'], ['IND', '22']]);
+    put('S_gold', 'production', 'トン', '2022', 'USGS',
+      [['CHN', '330'], ['AUS', '320'], ['RUS', '300'], ['CAN', '200'], ['USA', '170']]);
+    put('S_lithium', 'production', 'トン（金属換算）', '2023', 'USGS',
+      [['AUS', '86000'], ['CHL', '44000'], ['CHN', '33000'], ['ARG', '9600'], ['BRA', '2600']]);
+    put('S_ree', 'production', 'トン（REO）', '2023', 'USGS',
+      [['CHN', '240000'], ['USA', '43000'], ['MMR', '38000'], ['AUS', '18000'], ['THA', '7100']]);
+
+    // 工業
+    put('S_steel', 'production', '百万トン', '2023', 'World Steel Association',
+      [['CHN', '1019'], ['IND', '140'], ['JPN', '87'], ['USA', '81'], ['RUS', '76']]);
+    put('S_auto', 'production', '万台', '2023', 'OICA',
+      [['CHN', '3016'], ['USA', '1061'], ['JPN', '899'], ['IND', '585'], ['KOR', '424']]);
+    put('S_semicon', 'production', '億ドル（売上）', '2023', 'SIA / 業界推計',
+      [['TWN', ''], ['KOR', ''], ['USA', ''], ['JPN', ''], ['CHN', '']]);
+    put('S_cement', 'production', '百万トン', '2022', 'USGS',
+      [['CHN', '2100'], ['IND', '370'], ['VNM', '100'], ['USA', '95'], ['TUR', '85']]);
+
+    state.stats = { v: 2, items: Object.fromEntries(items.map(i => [i.id, i])), data };
     syncStatsToCountryRankings();
     save();
   }
@@ -3521,6 +3565,7 @@
     if (!list) return;
     list.innerHTML = '';
     const field = st.field;
+    // 1品目=1ボタン。生産量・輸出量・輸入量は詳細で選択
     const items = Object.values(state.stats.items || {}).filter(i => i.field === field)
       .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
     if (!items.length) {
@@ -3529,10 +3574,18 @@
     }
     items.forEach(it => {
       const metrics = STAT_METRICS.filter(m => state.stats.data[it.id] && state.stats.data[it.id][m.id]);
-      const card = h('div', { class: 'rk-card', style: 'cursor:pointer' },
+      const chipRow = h('div', { class: 'stats-metric-chips' });
+      if (metrics.length) {
+        metrics.forEach(m => {
+          chipRow.append(h('span', { class: 'stats-chip' }, m.name));
+        });
+      } else {
+        chipRow.append(h('span', { class: 'stats-chip muted' }, 'データ未登録'));
+      }
+      const card = h('div', { class: 'rk-card stats-item-card', style: 'cursor:pointer' },
         h('div', { class: 'rk-card-main' },
           h('strong', {}, it.name),
-          h('small', {}, metrics.length ? metrics.map(m => m.name).join('・') : 'データ未登録')),
+          chipRow),
         state.edit ? h('div', { class: 'rk-card-acts' },
           h('button', { class: 'chip-btn', type: 'button', onclick: (ev) => { ev.stopPropagation(); editStatItem(it.id); } }, '編集'),
           h('button', { class: 'chip-btn danger', type: 'button', onclick: (ev) => { ev.stopPropagation(); deleteStatItem(it.id); } }, '削除')
@@ -3549,13 +3602,18 @@
     $('stats-detail-view').classList.remove('hidden');
     const it = state.stats.items[id];
     $('stats-detail-title').textContent = it ? it.name : id;
-    // 存在する指標を優先
+    // 存在する指標だけタブ表示。複数ある場合は選択、1つならその指標のみ
     const available = STAT_METRICS.filter(m => state.stats.data[id] && state.stats.data[id][m.id]);
-    if (available.length && !state.stats.data[id][st.metric]) st.metric = available[0].id;
-    $('stats-metric-tabs').querySelectorAll('button').forEach(b => {
+    if (available.length && !available.some(m => m.id === st.metric)) st.metric = available[0].id;
+    const tabs = $('stats-metric-tabs');
+    tabs.querySelectorAll('button').forEach(b => {
+      const has = available.some(m => m.id === b.dataset.metric);
+      b.style.display = has ? '' : 'none';
       b.classList.toggle('on', b.dataset.metric === st.metric);
       b.classList.toggle('active', b.dataset.metric === st.metric);
     });
+    // 指標が1つだけのときはタブを目立たせすぎない
+    tabs.style.opacity = available.length <= 1 ? '0.7' : '1';
     renderStatRanks();
   }
 

@@ -1105,3 +1105,9 @@ input[readonly], textarea[readonly] {
 #quiz-map-svg { width: 100%; height: auto; background: #fafafa; border-radius: 8px; border: 1px solid #eee; }
 #quiz-actions,
 #quiz-result .btn-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
+
+/* 統計一覧：1品目1ボタン + 指標チップ */
+.stats-item-card .rk-card-main { gap: 6px; }
+.stats-metric-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.stats-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; color: #333; border: 1px solid #e0e0e0; }
+.stats-chip.muted { color: #999; background: #fafafa; }
