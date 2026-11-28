@@ -1084,83 +1084,93 @@ input[readonly], textarea[readonly] {
 #app:not(.edit) .rk-cat:first-child { margin-top: 0; }
 #app:not(.edit) .rk-cat:first-child .rk-toggle { padding-top: 6px; }
 
-/* ---------- 世界統計・クイズ ---------- */
+/* ---------- 世界統計・クイズ（既存パネルUIに合わせる） ---------- */
+#stats-panel,
+#quiz-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 #stats-panel .panel-body,
-#quiz-panel .panel-body { padding-bottom: 24px; }
+#quiz-panel .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 #stats-field-tabs,
 #stats-metric-tabs,
-#quiz-mode-tabs { margin: 8px 0 12px; flex-wrap: wrap; }
+#quiz-mode-tabs {
+  flex-wrap: wrap;
+  width: 100%;
+}
+#stats-field-tabs button,
+#stats-metric-tabs button,
+#quiz-mode-tabs button {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+#stats-item-list,
+#stats-rank-list {
+  padding: 0 0 12px;
+}
 #stats-item-list .rk-card,
-#stats-rank-list .rk-card { margin-bottom: 8px; }
-#stats-detail-title { font-size: 18px; margin: 8px 0 4px; }
-#btn-stats-back { margin-bottom: 8px; }
-.quiz-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.quiz-meta span { background: #f2f2f2; padding: 2px 8px; border-radius: 999px; }
-#quiz-item-name { font-size: 22px; margin: 4px 0 12px; letter-spacing: 0.04em; }
-.quiz-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.quiz-table th,
-.quiz-table td { border-bottom: 1px solid #eee; padding: 8px 6px; text-align: left; }
-.quiz-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.quiz-answer { font-size: 16px; font-weight: 600; margin: 12px 0; }
-#quiz-map-svg { width: 100%; height: auto; background: #fafafa; border-radius: 8px; border: 1px solid #eee; }
-#quiz-actions,
-#quiz-result .btn-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
-
-/* 統計一覧：1品目1ボタン + 指標チップ */
-.stats-item-card .rk-card-main { gap: 6px; }
-.stats-metric-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.stats-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; color: #333; border: 1px solid #e0e0e0; }
-.stats-chip.muted { color: #999; background: #fafafa; }
-
-/* ---------- 世界統計：カテゴリ選択・カード見た目 ---------- */
-#stats-field-tabs {
+#stats-rank-list .rk-card {
+  margin: 0 12px 8px;
+}
+.stats-metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.stats-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f2f2f2;
+  color: #444;
+  border: 1px solid #e6e6e6;
+}
+.stats-chip.muted { color: #999; }
+.quiz-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 0 14px;
-  padding: 0 2px;
+  margin-bottom: 4px;
 }
-#stats-field-tabs button {
-  flex: 1 1 auto;
-  min-width: 4.5em;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #ddd;
-  background: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  color: #555;
+.quiz-meta span {
+  font-size: 12px;
+  color: var(--muted);
+  background: #f2f2f2;
+  padding: 2px 8px;
+  border-radius: 999px;
 }
-#stats-field-tabs button.on,
-#stats-field-tabs button.active {
-  background: #111;
-  border-color: #111;
-  color: #fff;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+.quiz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
 }
-#stats-item-list {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+.quiz-table th,
+.quiz-table td {
+  border-bottom: 1px solid #eee;
+  padding: 8px 6px;
+  text-align: left;
+  word-break: break-word;
 }
-#stats-item-list .stats-item-card,
-#stats-item-list .rk-card {
-  border-radius: 12px;
-  padding: 12px 14px;
-  border: 1px solid #e6e6e6;
-  background: #fff;
-  min-height: 52px;
-  box-shadow: none;
+.quiz-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
 }
-#stats-item-list .stats-item-card:active {
-  background: #f5f5f5;
-}
-#stats-metric-tabs button.on,
-#stats-metric-tabs button.active {
-  background: #111;
-  color: #fff;
-  border-color: #111;
+.quiz-answer {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  line-height: 1.5;
+  word-break: break-word;
 }
 .quiz-rank-ol {
   margin: 8px 0 0 1.2em;
@@ -1168,7 +1178,17 @@ input[readonly], textarea[readonly] {
   font-size: 14px;
   line-height: 1.7;
 }
-/* クイズ地図モード中はピン等をCSSでも隠す */
+#quiz-actions .btn-row,
+#quiz-result .btn-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#quiz-actions .btn-row button,
+#quiz-result .btn-row button {
+  flex: 1 1 auto;
+  min-width: 7em;
+}
+/* クイズ地図モード：ピン・落書き・気候区分を隠す（メイン地図は使用） */
 #app.quiz-map-mode #svg-pins,
 #app.quiz-map-mode #canvas-below,
 #app.quiz-map-mode #canvas-above,
@@ -1177,4 +1197,11 @@ input[readonly], textarea[readonly] {
 }
 #app.quiz-map-mode .climate {
   display: none !important;
+}
+/* スマホ時もパネル内が見切れないように */
+@media (max-width: 1024px) {
+  #stats-panel,
+  #quiz-panel {
+    max-height: calc(100% - var(--tabs-h, 90px) - 8px);
+  }
 }

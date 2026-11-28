@@ -2240,6 +2240,7 @@
     if (bAcc) bAcc.classList.toggle('active', name === 'sync');
     if (name === 'layer') renderLayers();
     syncDock();
+    if (typeof updateUI === 'function') updateUI();
   }
   function closeAllPanels() {
     setPanel(null);
@@ -3558,10 +3559,12 @@
     $('stats-list-view').classList.remove('hidden');
     $('stats-detail-view').classList.add('hidden');
     setPanel('stats');
+    updateUI();
     renderStatsList();
   }
   function closeStatsPanel() {
     setPanel(null);
+    updateUI();
   }
 
   function renderStatsList() {
@@ -3613,11 +3616,8 @@
     tabs.querySelectorAll('button').forEach(b => {
       const has = available.some(m => m.id === b.dataset.metric);
       b.style.display = has ? '' : 'none';
-      b.classList.toggle('on', b.dataset.metric === st.metric);
       b.classList.toggle('active', b.dataset.metric === st.metric);
     });
-    // 指標が1つだけのときはタブを目立たせすぎない
-    tabs.style.opacity = available.length <= 1 ? '0.7' : '1';
     renderStatRanks();
   }
 
@@ -3771,17 +3771,14 @@
       const b = ev.target.closest('button[data-field]');
       if (!b) return;
       st.field = b.dataset.field;
-      $('stats-field-tabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      $('stats-field-tabs').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
       renderStatsList();
     });
     $('stats-metric-tabs')?.addEventListener('click', ev => {
       const b = ev.target.closest('button[data-metric]');
       if (!b) return;
       st.metric = b.dataset.metric;
-      $('stats-metric-tabs').querySelectorAll('button').forEach(x => {
-        x.classList.toggle('on', x === b);
-        x.classList.toggle('active', x === b);
-      });
+      $('stats-metric-tabs').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
       renderStatRanks();
     });
     $('btn-stats-back')?.addEventListener('click', () => {
@@ -3816,6 +3813,7 @@
     $('quiz-home').classList.remove('hidden');
     $('quiz-play').classList.add('hidden');
     setPanel('quiz');
+    updateUI();
     const n = quizCandidates(false).length;
     const nr = (state.quizReview || []).length;
     $('quiz-stats-count').textContent = `出題可能: ${n} 問 ／ 要復習: ${nr} 問`;
@@ -3823,6 +3821,7 @@
   function closeQuizPanel() {
     clearQuizMapMode();
     setPanel(null);
+    updateUI();
   }
 
   function startQuiz(reviewOnly) {
@@ -3977,7 +3976,7 @@
       const b = ev.target.closest('button[data-qmode]');
       if (!b) return;
       st.qMode = b.dataset.qmode;
-      $('quiz-mode-tabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      $('quiz-mode-tabs').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
     });
     $('btn-quiz-start')?.addEventListener('click', () => startQuiz(false));
     $('btn-quiz-review')?.addEventListener('click', () => startQuiz(true));
@@ -4844,8 +4843,11 @@
     $('seg-cat').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.cat === state.stampCat));
     $('seg-stampmode').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.sm === state.stampMode));
     $('btn-landonly').classList.toggle('on', state.landOnly);
-    $('view-pin').classList.toggle('active', state.viewTarget === 'pin');
-    $('view-country').classList.toggle('active', state.viewTarget === 'country');
+    $('view-pin').classList.toggle('active', state.viewTarget === 'pin' && state.panel !== 'stats' && state.panel !== 'quiz');
+    $('view-country').classList.toggle('active', state.viewTarget === 'country' && state.panel !== 'stats' && state.panel !== 'quiz');
+    const vs = $('view-stats'), vq = $('view-quiz');
+    if (vs) vs.classList.toggle('active', state.panel === 'stats');
+    if (vq) vq.classList.toggle('active', state.panel === 'quiz');
 
     const s = state.sub, agri = stampLasso(stampDef());
     const show = (id, v) => $(id).classList.toggle('hidden', !v);
