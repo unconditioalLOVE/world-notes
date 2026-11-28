@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-28-v27';
+  const BUILD = '2026-11-28-v29';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -610,6 +610,8 @@
       if (!l.folderId && !inOrder.has('layer:' + l.id)) state.order.push({ t: 'layer', id: l.id });
     });
   }
+  const folderColor = v => (/^#[0-9a-fA-F]{6}$/.test(v) ? v : null);      // null＝指定なし（レイヤーと同じ見た目）
+  const FOLDER_COLORS = ['#111111', '#d64545', '#e0861e', '#d4ad00', '#3a9a5b', '#2f7fb0', '#7a5bc0'];
   function folderById(id) { return (state.folders || []).find(f => f.id === id); }
   function layersInFolder(fid) { return state.layers.filter(l => l.folderId === fid); }
   function layerEffectivelyVisible(layer) {
@@ -716,8 +718,8 @@
         .map(n => ({ id: n.id || 'N' + uid(), lon: n.lon, lat: n.lat, text: n.text }))
     }));
     state.countries = cleanCountries(d.countries);
-    // ランキングを持たないデータ（旧版の端末など）を取り込んでも、手元のランキングは消さない
-    if (d.rankings !== undefined) state.rankings = cleanRankings(d.rankings);
+    // ランキングは丸ごと置き換えず、国ごとに新しい方を残す（旧版の端末のデータを取り込んでも消えない）
+    if (d.rankings !== undefined) mergeRankings(d.rankings);
     if (d.guides && typeof d.guides === 'object') {
       state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
@@ -725,7 +727,8 @@
     if (typeof d.showRivers === 'boolean') state.showRivers = d.showRivers;
     if (typeof d.showClimate === 'boolean') state.showClimate = d.showClimate;
     state.folders = (Array.isArray(d.folders) ? d.folders : []).map(f => ({
-      id: f.id || 'FD' + uid(), name: f.name || 'フォルダ', open: f.open !== false, visible: f.visible !== false
+      id: f.id || 'FD' + uid(), name: f.name || 'フォルダ', open: f.open !== false, visible: f.visible !== false,
+      color: folderColor(f.color)
     }));
     state.order = Array.isArray(d.order) ? d.order.filter(o => o && o.id && (o.t === 'layer' || o.t === 'folder')) : [];
     // 孤立した folderId を掃除
@@ -1051,9 +1054,9 @@
     applyPatScale(true);
   }
 
-  // メモのある国をほんのり色づけ
+  // メモのある国は枠を少し太くする（塗らないので川が隠れない）
   function renderMemoMarks() {
-    svgBase.selectAll('.country').classed('has-memo', d => hasCountryNote(state.countries[d._key]));
+    svgLines.selectAll('.border').classed('has-memo', d => hasCountryNote(state.countries[d._key]));
   }
 
   function renderHighlight() {
@@ -1441,20 +1444,6 @@
         undo() { arr.forEach((f, i) => l.fills.splice(clamp(idxs[i], 0, l.fills.length), 0, f)); }
       };
     },
-    setCountryFill: (l, key, nf) => {
-      let old = [];
-      return {
-        redo() {
-          old = l.fills.filter(x => x.kind === 'country' && x.country === key);
-          l.fills = l.fills.filter(x => !old.includes(x));
-          if (nf) l.fills.push(nf);
-        },
-        undo() {
-          if (nf) l.fills = l.fills.filter(x => x !== nf);
-          l.fills.push(...old);
-        }
-      };
-    },
     addStamps: (l, arr) => ({
       redo() { l.stamps.push(...arr); },
       undo() { l.stamps = l.stamps.filter(s => !arr.includes(s)); }
@@ -1505,7 +1494,6 @@
     renderNotes();
     redraw();
     if (state.panel === 'layer') renderLayers();
-    if (state.panel === 'country') renderCountryChips();
     updateUndoButtons();
   }
   function perform(a, kind) {
@@ -1788,25 +1776,6 @@
       return Math.hypot(x + m[0] * k - sx, y + m[1] * k - sy) < PIN_HIT;
     });
     if (hit.length) perform(A.removePins(hit));
-  }
-
-  // 国メモの「国全体の塗り」：塗りつぶし＋模様の組み合わせを変更
-  function setCountryFillSpec(key, mut) {
-    const layer = drawable();
-    if (!layer) return;
-    const ex = layer.fills.filter(f => f.kind === 'country' && f.country === key).pop();
-    const nx = mut({ solid: ex ? ex.solid : false, pattern: ex ? ex.pattern : null });
-    let nf = null;
-    if (nx.solid || nx.pattern) {
-      nf = {
-        id: 'F' + uid(), kind: 'country', country: key, keys: [key],
-        pattern: nx.pattern || null, color: ex && ex.color ? ex.color : state.fillColor,
-        solid: !!nx.solid, solidColor: ex && ex.solid ? ex.solidColor : state.solidColor,
-        above: ex ? ex.above : false
-      };
-    }
-    if (!nf && !ex) return;
-    perform(A.setCountryFill(layer, key, nf));
   }
 
   function clearActiveLayer() {
@@ -2218,24 +2187,11 @@
     $('country-v-title').textContent = f._name;
     $('country-memo').value = (state.countries[f._key] || {}).memo || '';
     cvReset();
-    renderCountryChips();
     setPanel('country');
     $('country-body').scrollTop = 0;
     renderCanvas();
     rkOpen();
     renderHighlight();
-  }
-
-  function renderCountryChips() {
-    const key = state.selectedCountryKey;
-    if (!key) return;
-    const layer = activeLayer();
-    const f = layer && layer.fills.filter(x => x.kind === 'country' && x.country === key).pop();
-    markChips($('country-chips'), f ? [f.solid ? 'solid' : null, f.pattern].filter(Boolean) : ['none']);
-    $('country-color').value = f ? (f.pattern ? f.color : f.solidColor) : state.fillColor;
-    $('country-layer-note').textContent = layer
-      ? `塗りはレイヤー「${layer.name}」に追加されます。${layer.visible ? '' : '（このレイヤーは非表示です）'}`
-      : '';
   }
 
   /* =========================================================
@@ -3038,6 +2994,9 @@
     Object.keys(src).forEach(k => {
       const e = src[k];
       if (k === '__proto__' || !e || !Array.isArray(e.items)) return;
+      const time = v => (Number.isFinite(v) && v > 0 ? v : 0);
+      const del = {};
+      Object.keys(e.del && typeof e.del === 'object' ? e.del : {}).forEach(id => { if (/^[\w-]{1,40}$/.test(id) && time(e.del[id])) del[id] = e.del[id]; });
       const ids = new Set();
       const items = e.items.map(it => {
         if (!it || typeof it !== 'object') return null;
@@ -3049,11 +3008,11 @@
         return {
           id, cat, name, type: RK_TYPES.includes(it.type) ? it.type : 'その他', rank: rkRankNum(it.rank),
           value: rkText(it.value, 60), unit: rkText(it.unit, 30), year: rkText(it.year, 20),
-          source: rkText(it.source, 300), note: rkText(it.note, 2000)
+          source: rkText(it.source, 300), note: rkText(it.note, 2000), t: time(it.t)
         };
       }).filter(Boolean);
-      if (!items.length) return;
-      out[k] = { cats: Array.isArray(e.cats) ? e.cats.map(c => rkText(c, 40).trim()) : [], items };
+      if (!items.length && !Object.keys(del).length) return;
+      out[k] = { cats: Array.isArray(e.cats) ? e.cats.map(c => rkText(c, 40).trim()) : [], items, del, ot: time(e.ot) };
       rkFixCats(out[k]);
     });
     return out;
@@ -3071,6 +3030,49 @@
     });
   }
   const rkData = () => state.rankings[state.selectedCountryKey] || null;
+  const rkNow = prev => Math.max(Date.now(), (prev || 0) + 1);      // 受け取った内容より後の編集は、必ず新しい時刻になる
+
+  /* ---------- 端末間の合流（丸ごと上書きしない） ----------
+   * 項目ごと：更新時刻 t が新しい方を残す／削除は del[id]=時刻 で伝える／並び順は ot が新しい方 */
+  function mergeEntry(l, r) {
+    const del = { ...l.del };
+    Object.entries(r.del).forEach(([id, t]) => { del[id] = Math.max(t, del[id] || 0); });
+    const [base, other] = r.ot > l.ot ? [r, l] : [l, r];
+    const best = new Map();
+    [...l.items, ...r.items].forEach(i => { const c = best.get(i.id); if (!c || i.t > c.t) best.set(i.id, i); });
+    const ids = [...new Set([...base.items, ...other.items].map(i => i.id))];
+    const items = ids.map(id => best.get(id)).filter(i => !(del[i.id] && del[i.id] >= i.t));
+    const next = { cats: [...base.cats, ...other.cats], items, del, ot: base.ot };
+    rkFixCats(next);
+    return next;
+  }
+  function mergeRankings(src) {
+    const remote = cleanRankings(src);
+    let changed = false;
+    Object.keys(remote).forEach(k => {
+      const l = state.rankings[k], next = l ? mergeEntry(l, remote[k]) : remote[k];
+      if (!l || JSON.stringify(next) !== JSON.stringify(l)) { state.rankings[k] = next; changed = true; }
+    });
+    return changed;
+  }
+  // 受け取った内容を保存して、開いている画面に反映する
+  function rkReceived() {
+    lsSet(RANK_KEY, JSON.stringify(state.rankings));
+    if (state.panel !== 'country' || !state.selectedCountryKey) return;
+    rkShowTab();
+    if (rk.tab === 'rank' && !rk.form && !rk.drag) renderRank();
+    else if (rk.tab === 'note' && !cvs.editing && !cvs.drag) renderCanvas();
+  }
+  // クラウドにあるランキングだけを読んで合流させる（ノートには触れない）
+  async function mergeCloudRankings(head) {
+    if (!head || !head.n) return;
+    const docs = await Promise.all(Array.from({ length: head.n }, (_, i) => sync.ref.doc('c' + i).get()));
+    if (docs.some(d => !d.exists)) return;
+    let d;
+    try { d = JSON.parse(docs.map(x => x.data().s).join('')); } catch { return; }
+    if (mergeRankings(d.rankings)) rkReceived();
+    lsSet('wn-rank-rev', head.rev);
+  }
   const rkHas = key => !!(state.rankings[key] && state.rankings[key].items.length);
   const rkLabel = it => (it.type === 'その他' || it.name.endsWith(it.type) ? it.name : it.name + it.type);
   function rkNumText(v) {
@@ -3168,7 +3170,7 @@
     if (!state.edit) root.append(h('div', { class: 'view-card' }, h('h2', {}, f ? f._name : $('country-v-title').textContent)));
     else root.append(h('div', { class: 'rk-top' },
       h('button', { class: 'primary-btn', type: 'button', id: 'rk-add', onclick: () => rkOpenForm(null) }, '＋ ランキングを追加')));
-    if (!e) {
+    if (!e || !e.items.length) {
       root.append(h('p', { class: 'rk-empty' }, 'この国のランキングはまだありません。'));
       return;
     }
@@ -3199,7 +3201,7 @@
     if (!confirm(`ランキング「${rkLabel(it)}」を削除しますか？`)) return;
     e.items = e.items.filter(i => i !== it);
     rkFixCats(e);
-    if (!e.items.length) delete state.rankings[key];
+    e.del = { ...e.del, [id]: rkNow(it.t) };
     save();
     renderRank();
     showToast('ランキングを削除しました');
@@ -3212,10 +3214,14 @@
     if (!e || !state.edit) return;
     const sections = [...$('rank-body').querySelectorAll('.rk-cat')];
     if (!sections.length) return;
+    const before = JSON.stringify([e.cats, e.items.map(i => i.id)]);
     e.cats = sections.map(s => s.dataset.cat);
     const byId = new Map(e.items.map(i => [i.id, i]));
     const items = sections.flatMap(s => [...s.querySelectorAll('.rk-card')].map(c => byId.get(c.dataset.id))).filter(Boolean);
     if (items.length === e.items.length) e.items = items;
+    rkFixCats(e);
+    if (JSON.stringify([e.cats, e.items.map(i => i.id)]) === before) return;
+    e.ot = rkNow(e.ot);
     save();
   }
   function rkStartDrag(ev, el, kind) {
@@ -3286,8 +3292,9 @@
       id: draft.id || 'R' + uid(), cat: draft.cat.trim(), name: draft.name.trim(), type: draft.type, rank: rkRankNum(draft.rank),
       value: draft.value.trim(), unit: draft.unit.trim(), year: draft.year.trim(), source: draft.source.trim(), note: draft.note.trim()
     };
-    const e = state.rankings[key] || (state.rankings[key] = { cats: [], items: [] });
+    const e = state.rankings[key] || (state.rankings[key] = { cats: [], items: [], del: {}, ot: 0 });
     const i = e.items.findIndex(x => x.id === d.id);
+    d.t = rkNow(Math.max(i < 0 ? 0 : e.items[i].t, e.del[d.id] || 0));
     if (i < 0) e.items.push(d);
     else if (e.items[i].cat === d.cat) e.items[i] = d;
     else { e.items.splice(i, 1); e.items.push(d); }       // カテゴリーを変えたら移動先の末尾へ
@@ -3390,6 +3397,23 @@
     setType(d.type);
   }
 
+  // バックアップの復元：復元した内容が、クラウドの内容より新しい扱いになるようにする
+  function rkRestore(src) {
+    const next = cleanRankings(src);
+    Object.keys(state.rankings).forEach(k => { if (!next[k]) next[k] = { cats: [], items: [], del: {}, ot: 0 }; });
+    Object.keys(next).forEach(k => {
+      const e = next[k], l = state.rankings[k] || { items: [], del: {}, ot: 0 };
+      const last = Math.max(0, ...l.items.map(i => i.t), ...Object.values(l.del));
+      const now = rkNow(Math.max(last, l.ot));
+      const keep = new Set(e.items.map(i => i.id));
+      e.del = { ...l.del, ...e.del };
+      l.items.forEach(i => { if (!keep.has(i.id)) e.del[i.id] = now; });
+      e.items.forEach(i => { i.t = now; });
+      e.ot = now;
+    });
+    return next;
+  }
+
   function bindRank() {
     $('rk-tabs').addEventListener('click', ev => { const b = ev.target.closest('button'); if (b) rkSetTab(b.dataset.tab); });
   }
@@ -3488,6 +3512,10 @@
         + (folder.visible === false ? ' off' : '');
       div.dataset.id = folder.id;
       div.dataset.kind = 'folder';
+      const color = folderColor(folder.color);
+      if (color) { div.classList.add('colored'); div.style.setProperty('--fc', color); }
+      const picking = state.edit && state.colorFolderId === folder.id;
+      if (picking) div.classList.add('picking');
       div.innerHTML = `
         <button class="eye ${folder.visible === false ? 'off' : ''}" data-act="folder-eye" title="${folder.visible === false ? '表示' : '非表示'}" aria-label="表示切替">${folder.visible === false ? ICON.eyeOff : ICON.eye}</button>
         <button class="fold-toggle" data-act="fold" title="${folder.open ? '閉じる' : '開く'}" aria-label="開閉">${folder.open ? '▼' : '▶'}</button>
@@ -3496,9 +3524,17 @@
           <div class="lmeta">レイヤー <b>${kids.length}</b></div>
         </div>
         <div class="lactions edit-only">
+          <button type="button" class="fcolor-btn" data-act="color" title="枠の色" aria-label="枠の色" aria-expanded="${picking}"><i></i></button>
           <button type="button" class="drag-handle" data-act="drag" title="ドラッグで並び替え">⠿</button>
           <button data-act="del" title="フォルダ解除">${ICON.del}</button>
         </div>`;
+      if (picking) {
+        div.insertAdjacentHTML('beforeend', `<div class="fcolor-row edit-only">
+          <button type="button" class="fcolor-none${color ? '' : ' active'}" data-act="color-set" data-color="">指定なし</button>
+          ${FOLDER_COLORS.map(c => `<button type="button" class="fcolor-dot${c === color ? ' active' : ''}" data-act="color-set" data-color="${c}" style="--dot:${c}" aria-label="枠の色 ${c}"></button>`).join('')}
+          <label class="fcolor-custom">自由な色<input type="color" class="fcolor-input" value="${color || '#111111'}" /></label>
+        </div>`);
+      }
       list.appendChild(div);
       if (folder.open) kids.forEach(l => renderLayerRow(l, 1));
     };
@@ -3589,6 +3625,8 @@
 
     // 名前の入力欄をタップした時は再描画しない（再描画すると入力欄が作り直されて、キーボードが開かず名前を変更できない）
     if (state.edit && e.target.classList && e.target.classList.contains('lname')) return;
+    // 色の欄の中（ボタン以外）は再描画しない（色の選択画面が閉じてしまうため）
+    if (e.target.closest('.fcolor-row') && !btn) return;
 
     if (kind === 'folder') {
       const folder = folderById(id);
@@ -3596,6 +3634,17 @@
       if (act === 'folder-eye') {
         folder.visible = folder.visible === false ? true : false;
         save(); renderLayers(); renderFills(); redraw(); renderNotes();
+        return;
+      }
+      if (act === 'color' && state.edit) {
+        state.colorFolderId = state.colorFolderId === id ? null : id;
+        renderLayers();
+        return;
+      }
+      if (act === 'color-set' && state.edit) {
+        folder.color = folderColor(btn.dataset.color);
+        state.colorFolderId = null;
+        save(); renderLayers();
         return;
       }
       if (act === 'fold') {
@@ -3630,8 +3679,7 @@
     if (act === 'eye') {
       layer.visible = !layer.visible;
       save(); renderLayers(); renderFills(); redraw(); renderNotes();
-      if (state.panel === 'country') renderCountryChips();
-      return;
+        return;
     }
     if (act === 'del' && state.edit) {
       if (state.layers.length <= 1) { showToast('描画レイヤーは最低1つ必要です'); return; }
@@ -3651,9 +3699,20 @@
         state.activeLayerId = layer.id;
       }
       renderLayers();
-      if (state.panel === 'country') renderCountryChips();
-    }
+      }
   });
+
+  // 自由な色：選びながら枠に反映する
+  ['input', 'change'].forEach(type => $('layer-list').addEventListener(type, e => {
+    if (!e.target.classList.contains('fcolor-input') || !state.edit) return;
+    const item = e.target.closest('.layer-item'), folder = item && folderById(item.dataset.id);
+    if (!folder) return;
+    folder.color = folderColor(e.target.value);
+    item.classList.toggle('colored', !!folder.color);
+    item.style.setProperty('--fc', folder.color);
+    item.querySelectorAll('.fcolor-row button').forEach(b => b.classList.toggle('active', b.dataset.color === folder.color));
+    saveSoon();
+  }));
 
   $('layer-list').addEventListener('change', e => {
     if (!e.target.classList.contains('lname') || !state.edit) return;
@@ -3896,7 +3955,7 @@
     const handle = t.closest('[data-act="drag"]');
     if (handle) return { item, immediate: true };
     // 行本体の長押し（ボタン・入力は除外）
-    if (t.closest('button') || t.closest('input')) return null;
+    if (t.closest('button') || t.closest('input') || t.closest('.fcolor-row')) return null;
     return { item, immediate: false };
   }
 
@@ -4069,17 +4128,7 @@
       markChips($('pattern-chips'), state.pattern ? [state.pattern] : []);
     });
     $('btn-solid').innerHTML = swatch('solid');
-    buildChips($('country-chips'), { none: true, solid: true }, pid => {
-      if (!state.edit || !state.selectedCountryKey) return;
-      setCountryFillSpec(state.selectedCountryKey, cur => {
-        if (pid === 'none') return { solid: false, pattern: null };
-        if (pid === 'solid') return { solid: !cur.solid, pattern: cur.pattern };
-        return { solid: cur.solid, pattern: cur.pattern === pid ? null : pid };
-      });
-      renderCountryChips();
-    });
     markChips($('pattern-chips'), state.pattern ? [state.pattern] : []);
-    renderCountryChips();
   }
 
   function buildStampUI() {
@@ -4376,18 +4425,6 @@
     $('text-color-picker').oninput = e => setColor(e.target.value);
     $('fill-color').oninput = e => { state.fillColor = e.target.value; rebuildPatternChips(); };
     $('solid-color').oninput = e => { state.solidColor = e.target.value; rebuildPatternChips(); };
-    $('country-color').onchange = e => {
-      const key = state.selectedCountryKey, layer = drawable();
-      if (!key || !state.edit || !layer) return;
-      const v = e.target.value;
-      const ex = layer.fills.filter(f => f.kind === 'country' && f.country === key).pop();
-      if (!ex) { state.fillColor = v; $('fill-color').value = v; rebuildPatternChips(); return; }
-      const nf = { ...ex, id: 'F' + uid() };
-      if (ex.pattern) { nf.color = v; state.fillColor = v; $('fill-color').value = v; }
-      else { nf.solidColor = v; state.solidColor = v; $('solid-color').value = v; }
-      perform(A.setCountryFill(layer, key, nf));
-      rebuildPatternChips();
-    };
     $('size-slider').oninput = e => {
       state.sizeT[sizeKey()] = +e.target.value;
       // テキスト入力中・選択中もサイズ変更を即反映
@@ -4511,7 +4548,7 @@
         if (!confirm('現在のデータをバックアップの内容に置き換えますか？')) return;
         const { rankings, ...notes } = d;
         localStorage.setItem(KEY, JSON.stringify(notes));
-        if (rankings !== undefined) localStorage.setItem(RANK_KEY, JSON.stringify(rankings));   // 古いバックアップならランキングは残す
+        if (rankings !== undefined) localStorage.setItem(RANK_KEY, JSON.stringify(rkRestore(rankings)));   // 古いバックアップならランキングは残す
         lsSet('wn-sync-dirty', '1');          // 復元した内容を次の同期でクラウドへ送る
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
@@ -4649,6 +4686,8 @@
     const v = sync.ver;
     let ok = false;
     try {
+      const head = await sync.ref.doc('head').get();
+      if (head.exists) await mergeCloudRankings(head.data());
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
       const payload = {
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order,
@@ -4675,7 +4714,7 @@
         });
         await b.commit();
       }
-      sync.rev = rev; sync.lastN = n; lsSet('wn-sync-rev', rev);
+      sync.rev = rev; sync.lastN = n; lsSet('wn-sync-rev', rev); lsSet('wn-rank-rev', rev);
       if (sync.ver === v) lsSet('wn-sync-dirty', '0');
       ok = true;
       setSyncStatus('ok', hhmm());
@@ -4716,7 +4755,7 @@
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order,
         countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
       }));
-      sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0');
+      sync.rev = h.rev; sync.lastN = h.n; lsSet('wn-sync-rev', h.rev); lsSet('wn-sync-dirty', '0'); lsSet('wn-rank-rev', h.rev);
       if (dataReady) {
         applyGuides();
         try {
@@ -4742,6 +4781,7 @@
     if (lsGet('wn-sync-user', '') !== user.uid) {
       sync.rev = 0;
       lsSet('wn-sync-rev', 0);
+      lsSet('wn-rank-rev', '');
       lsSet('wn-sync-dirty', '0');
       lsSet('wn-sync-user', user.uid);
     }
@@ -4752,6 +4792,8 @@
       if (!snap.exists) return;
       const h = snap.data();
       if (!h || !h.rev) return;
+      // 取り込み済みの版でも、ランキングを未受信なら受け取る（旧版のうちに同期した端末向け）
+      if (h.rev <= sync.rev && String(h.rev) !== lsGet('wn-rank-rev', '')) mergeCloudRankings(h).catch(err => console.warn('[rank sync]', err));
       // 自分の端末からの書き込みは無視
       if (h.by === DEVICE) {
         if (h.rev > sync.rev) {

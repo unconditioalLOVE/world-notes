@@ -694,7 +694,7 @@ input[readonly], textarea[readonly] {
 .pchip.compact.solid { flex: 0 0 34px; width: 34px; }
 .chips.compact .pchip svg, .pchip.compact svg { width: 100%; height: auto; aspect-ratio: 1; }
 .chips.compact .pchip span { display: none; }
-.country.has-memo { fill: #eef1ef; }
+.border.has-memo { stroke-width: 1.4; }      /* メモのある国：枠を少しだけ太く */
 
 /* ---------- v8 ---------- */
 .lake { fill: var(--ocean); stroke: #b4c1cd; stroke-width: 0.6; vector-effect: non-scaling-stroke; }
@@ -739,7 +739,7 @@ input[readonly], textarea[readonly] {
 .layer-foot.backup { flex-wrap: wrap; }
 
 /* folders */
-.layer-item.folder { background: #f6f6f6; border-style: solid; }
+.layer-item.folder { border-style: solid; }
 .layer-item.folder .fold-toggle {
   width: 36px; height: 36px; border: none; border-radius: 10px;
   background: #3d3d3d; color: #fff; font-size: 10px; cursor: pointer; flex-shrink: 0;
@@ -758,11 +758,21 @@ input[readonly], textarea[readonly] {
 }
 .layer-foot.edit-only { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.layer-item.folder.active {
-  border-color: #111;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.14);
-  background: #f0f0f0;
-}
+/* フォルダの枠色（未指定ならレイヤーと同じ見た目） */
+.layer-item.folder.colored { border-color: var(--fc); border-width: 2px; }
+.layer-item.folder.colored.active::before { background: var(--fc); }
+.layer-item.folder.picking { flex-wrap: wrap; }
+.lactions .fcolor-btn i { width: 15px; height: 15px; border-radius: 50%; border: 1.5px dashed #999; }
+.lactions .fcolor-btn { display: flex; }
+.layer-item.colored .fcolor-btn i { border: 1px solid rgba(0,0,0,0.2); background: var(--fc); }
+.fcolor-row { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid #eee; cursor: default; }
+.fcolor-row button { cursor: pointer; }
+.fcolor-none { border: 1px solid #ccc; background: #fff; border-radius: 999px; padding: 5px 11px; font-size: 12px; }
+.fcolor-none.active { background: #111; border-color: #111; color: #fff; }
+.fcolor-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; background: var(--dot); box-shadow: 0 0 0 1px #ccc; }
+.fcolor-dot.active { box-shadow: 0 0 0 2.5px #111; }
+.fcolor-custom { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.fcolor-custom input { width: 28px; height: 28px; border: 1px solid #ccc; border-radius: 50%; padding: 0; background: none; cursor: pointer; }
 .layer-item.in-selected-folder {
   background: #f7f7f7;
 }
