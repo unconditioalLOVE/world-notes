@@ -36,3 +36,35 @@ window.WN_FIREBASE = {
 - この端末に保存していない内容がある場合は、置き換える前に確認が出ます。
 - 自動では保存も同期もしません。
 - 圏外では今まで通り使えます。保存や同期は、つながってから行ってください（圏外で開いた場合は、つながってから開き直してください）。
+
+---
+
+## Gemini AI（世界統計の自動入力）
+
+APIキーを `index.html` / `app.js` や GitHub 公開ファイルに書かないでください。
+
+### 方法A（簡単・ローカル用）
+`firebase-config.js` に次を追加（このファイルは公開リポジトリに上げない）:
+
+```js
+window.WN_GEMINI = {
+  apiKey: "あなたのGemini APIキー",
+  model: "gemini-2.0-flash"
+};
+```
+
+APIキーは https://aistudio.google.com/apikey で取得できます。
+
+### 方法B（推奨・本番）
+Cloud Functions などでプロキシを用意し:
+
+```js
+window.WN_GEMINI = {
+  proxyUrl: "https://YOUR_REGION-world-notes-321ad.cloudfunctions.net/geminiStats",
+  model: "gemini-2.0-flash"
+};
+```
+
+プロキシ側で Gemini API を呼び、クライアントにはキーを渡さない構成にしてください。
+
+Firebase AI Logic / App Check を使う場合も、キーはサーバー側に置いてください。

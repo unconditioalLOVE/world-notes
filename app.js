@@ -3682,8 +3682,24 @@
     if (!id) {
       id = 'S_' + uid();
       state.stats.items[id] = { id, name: n, field };
+      if (!state.stats.data[id]) state.stats.data[id] = {};
     } else {
       state.stats.items[id].name = n;
+    }
+    // 詳細表示中は単位・年度・出典も編集
+    if (st.itemId === id || (it && st.itemId === id)) {
+      if (!state.stats.data[id]) state.stats.data[id] = {};
+      if (!state.stats.data[id][st.metric]) {
+        state.stats.data[id][st.metric] = { unit: '', year: '', source: '', ranks: [] };
+      }
+      const block = state.stats.data[id][st.metric];
+      const unit = prompt('単位（例: 百万トン）', block.unit || '');
+      if (unit != null) block.unit = unit.trim();
+      const year = prompt('年度（例: 2022）', block.year || '');
+      if (year != null) block.year = year.trim();
+      const source = prompt('出典', block.source || '');
+      if (source != null) block.source = source.trim();
+      if (st.itemId === id) renderStatRanks();
     }
     save();
     renderStatsList();
@@ -3716,21 +3732,33 @@
     }
     const block = state.stats.data[st.itemId][st.metric];
     let r = block.ranks.find(x => x.countryKey === countryKey);
+    const isNew = !r;
     if (!r) {
-      const ck = countryKey || prompt('国コード（例: JPN, USA, CHN）', '');
-      if (!ck) return;
+      const ck = countryKey || prompt('国コード（ISO 3文字: JPN / USA / CHN など）', '');
+      if (ck == null) return;
+      if (!ck.trim()) { showToast('国コードを入力してください'); return; }
       r = { countryKey: ck.trim().toUpperCase(), value: '', rank: block.ranks.length + 1 };
       block.ranks.push(r);
+    } else {
+      const ck = prompt('国コード（ISO 3文字）', r.countryKey || '');
+      if (ck == null) return;
+      if (ck.trim()) r.countryKey = ck.trim().toUpperCase();
     }
     const rankStr = prompt('順位（数字）', String(r.rank || ''));
-    if (rankStr == null) return;
-    const val = prompt('数値（任意）', r.value || '');
-    if (val == null) return;
-    if (!block.unit) block.unit = prompt('単位（例: 百万トン）', block.unit || '') || '';
-    if (!block.year) block.year = prompt('年度（例: 2022）', block.year || '') || '';
-    if (!block.source) block.source = prompt('出典', block.source || '') || '';
+    if (rankStr == null) { if (isNew) block.ranks = block.ranks.filter(x => x !== r); return; }
+    const val = prompt('数値', r.value || '');
+    if (val == null) { if (isNew) block.ranks = block.ranks.filter(x => x !== r); return; }
+    const unit = prompt('単位（例: 百万トン）', block.unit || '');
+    if (unit == null) { if (isNew) block.ranks = block.ranks.filter(x => x !== r); return; }
+    const year = prompt('年度（例: 2022）', block.year || '');
+    if (year == null) { if (isNew) block.ranks = block.ranks.filter(x => x !== r); return; }
+    const source = prompt('出典', block.source || '');
+    if (source == null) { if (isNew) block.ranks = block.ranks.filter(x => x !== r); return; }
     r.rank = parseInt(rankStr, 10) || r.rank;
     r.value = String(val).trim();
+    block.unit = String(unit).trim();
+    block.year = String(year).trim();
+    block.source = String(source).trim();
     block.ranks.sort((a, b) => (a.rank || 999) - (b.rank || 999));
     syncOneStatToCountry(st.itemId, st.metric);
     save();
@@ -3814,6 +3842,222 @@
     $('btn-add-stat-item')?.addEventListener('click', () => editStatItem(null));
     $('btn-add-stat-rank')?.addEventListener('click', () => editStatRank(null));
     $('btn-edit-stat-meta')?.addEventListener('click', () => st.itemId && editStatItem(st.itemId));
+    // AI入力
+    $('btn-ai-stat')?.addEventListener('click', openStatsAiView);
+    $('btn-ai-back')?.addEventListener('click', closeStatsAiView);
+    $('btn-ai-cancel')?.addEventListener('click', closeStatsAiView);
+    $('btn-ai-fetch')?.addEventListener('click', () => fetchStatsWithAi(false));
+    $('btn-ai-refetch')?.addEventListener('click', () => fetchStatsWithAi(true));
+    $('btn-ai-apply')?.addEventListener('click', applyAiStatsPreview);
+  }
+
+  let aiPreviewPayload = null;
+
+  function openStatsAiView() {
+    $('stats-list-view')?.classList.add('hidden');
+    $('stats-detail-view')?.classList.add('hidden');
+    $('stats-ai-view')?.classList.remove('hidden');
+    $('ai-preview')?.classList.add('hidden');
+    $('ai-status').textContent = '';
+    aiPreviewPayload = null;
+    if (!$('ai-year').value) $('ai-year').value = String(new Date().getFullYear() - 1);
+  }
+  function closeStatsAiView() {
+    $('stats-ai-view')?.classList.add('hidden');
+    $('stats-list-view')?.classList.remove('hidden');
+    aiPreviewPayload = null;
+  }
+
+  function mapAiCatToField(cat) {
+    if (cat === '農業') return 'crop';
+    if (cat === '畜産業') return 'livestock';
+    if (cat === '鉱工業' || cat === 'エネルギー') return 'mineral';
+    if (cat === '貿易') return 'industry';
+    return 'other';
+  }
+  function mapAiMetricToId(name) {
+    if (name.includes('輸出')) return 'export';
+    if (name.includes('輸入')) return 'import';
+    return 'production'; // 生産・消費・埋蔵などは production 枠に格納
+  }
+
+  async function fetchStatsWithAi() {
+    const item = ($('ai-item')?.value || '').trim();
+    if (!item) { showToast('品目を入力してください'); return; }
+    const cat = $('ai-cat')?.value || 'その他';
+    const detail = ($('ai-detail')?.value || '').trim();
+    const year = ($('ai-year')?.value || '').trim() || String(new Date().getFullYear() - 1);
+    const metrics = [...document.querySelectorAll('#ai-metrics input:checked')].map(el => el.value);
+    if (!metrics.length) { showToast('統計の種類を1つ以上選んでください'); return; }
+
+    const status = $('ai-status');
+    const btn = $('btn-ai-fetch');
+    if (status) status.textContent = '取得中…（公的統計を優先して調べます）';
+    if (btn) btn.disabled = true;
+    $('ai-preview')?.classList.add('hidden');
+    aiPreviewPayload = null;
+
+    try {
+      const data = await callGeminiForStats({ cat, item, detail, metrics, year });
+      if (!data || !data.series || !data.series.length) {
+        if (status) status.textContent = '確認できるデータがありませんでした。条件を変えて再試行してください。';
+        return;
+      }
+      aiPreviewPayload = data;
+      renderAiPreview(data);
+      if (status) status.textContent = 'プレビューを確認して「世界統計に追加」を押してください。';
+      $('ai-preview')?.classList.remove('hidden');
+    } catch (e) {
+      console.error(e);
+      if (status) status.textContent = '取得に失敗しました: ' + (e.message || e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function callGeminiForStats({ cat, item, detail, metrics, year }) {
+    // APIキーは公開コードに埋め込まない。firebase-config.js の WN_GEMINI かプロキシを使う
+    const cfg = window.WN_GEMINI || {};
+    const proxy = cfg.proxyUrl || (window.WN_FIREBASE && window.WN_FIREBASE.geminiProxyUrl);
+    const apiKey = cfg.apiKey; // ローカル専用 firebase-config.js にのみ記載
+    const model = cfg.model || 'gemini-2.0-flash';
+
+    const prompt = `あなたは統計データ調査アシスタントです。架空の数値を作ってはいけません。
+確認できる公的統計（FAOSTAT, UN Comtrade, World Bank, USGS, 各国統計局など）に基づくデータのみ返してください。
+確認できない項目は ranks を空配列にしてください。
+
+次の条件の世界統計を調べ、JSONのみで回答してください（説明文禁止）。
+カテゴリ: ${cat}
+品目: ${item}
+詳細: ${detail || 'なし'}
+統計種類: ${metrics.join(', ')}
+対象年の目安: ${year}
+
+形式:
+{
+  "itemName": "品目名",
+  "fieldHint": "${cat}",
+  "series": [
+    {
+      "metricLabel": "生産量",
+      "unit": "単位",
+      "year": "2022",
+      "source": "出典名",
+      "sourceUrl": "https://...",
+      "ranks": [
+        { "countryKey": "CHN", "countryName": "中国", "value": "123", "estimate": false }
+      ]
+    }
+  ]
+}
+countryKey は ISO 3166-1 alpha-3。value は文字列。ranks は数値の大きい順。最大15か国。`;
+
+    let text = '';
+    if (proxy) {
+      const res = await fetch(proxy, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, model })
+      });
+      if (!res.ok) throw new Error('プロキシエラー ' + res.status);
+      const j = await res.json();
+      text = j.text || j.content || JSON.stringify(j);
+    } else if (apiKey) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2 }
+        })
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error('Gemini API ' + res.status + ' ' + err.slice(0, 180));
+      }
+      const j = await res.json();
+      text = (((j.candidates || [])[0] || {}).content || {}).parts
+        ? j.candidates[0].content.parts.map(p => p.text || '').join('')
+        : '';
+    } else {
+      throw new Error('Gemini未設定です。firebase-config.js に WN_GEMINI.apiKey か proxyUrl を設定してください（公開リポジトリには書かないでください）');
+    }
+
+    text = String(text || '').trim();
+    // JSONブロック抽出
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('AI応答を解析できませんでした');
+    const data = JSON.parse(m[0]);
+    return data;
+  }
+
+  function renderAiPreview(data) {
+    const root = $('ai-preview-body');
+    if (!root) return;
+    let html = `<p class="note"><strong>${data.itemName || ''}</strong></p>`;
+    (data.series || []).forEach(s => {
+      html += `<div class="rk-card" style="margin:8px 12px"><div class="rk-card-main">`;
+      html += `<strong>${s.metricLabel || ''}</strong>`;
+      html += `<small>${[s.unit, s.year, s.source].filter(Boolean).join(' ／ ')}</small>`;
+      if (s.sourceUrl) html += `<small><a href="${s.sourceUrl}" target="_blank" rel="noopener">出典URL</a></small>`;
+      html += `</div><ol class="quiz-rank-ol">`;
+      const ranks = [...(s.ranks || [])].map((r, i) => ({ ...r, rank: i + 1 }));
+      ranks.forEach(r => {
+        const est = r.estimate ? '（推定）' : '';
+        html += `<li>${r.rank}位 ${r.countryName || r.countryKey} ${r.value || ''}${est}</li>`;
+      });
+      if (!ranks.length) html += `<li class="note">データなし</li>`;
+      html += `</ol></div>`;
+    });
+    root.innerHTML = html;
+  }
+
+  function applyAiStatsPreview() {
+    if (!aiPreviewPayload) return;
+    const name = (aiPreviewPayload.itemName || $('ai-item').value || '').trim();
+    if (!name) { showToast('品目名がありません'); return; }
+    // 重複チェック
+    const dup = Object.values(state.stats.items || {}).find(x => x.name === name);
+    if (dup && !confirm(`「${name}」は既にあります。既存項目に指標をマージしますか？`)) return;
+
+    const field = mapAiCatToField(aiPreviewPayload.fieldHint || $('ai-cat').value);
+    let id = dup ? dup.id : ('S_' + uid());
+    if (!dup) state.stats.items[id] = { id, name, field };
+    if (!state.stats.data[id]) state.stats.data[id] = {};
+
+    (aiPreviewPayload.series || []).forEach(s => {
+      const mid = mapAiMetricToId(s.metricLabel || '');
+      const ranks = [...(s.ranks || [])]
+        .filter(r => r && r.countryKey && r.value != null && String(r.value).trim() !== '')
+        .map((r, i) => ({
+          countryKey: String(r.countryKey).toUpperCase(),
+          value: String(r.value),
+          rank: i + 1
+        }));
+      // 数値で再ソート
+      ranks.sort((a, b) => {
+        const na = parseStatValue(a.value), nb = parseStatValue(b.value);
+        if (isFinite(nb) && isFinite(na)) return nb - na;
+        return (a.rank || 0) - (b.rank || 0);
+      });
+      ranks.forEach((r, i) => { r.rank = i + 1; });
+      state.stats.data[id][mid] = {
+        unit: s.unit || '',
+        year: s.year || '',
+        source: [s.source, s.sourceUrl].filter(Boolean).join(' '),
+        ranks
+      };
+    });
+    syncStatsToCountryRankings();
+    save();
+    closeStatsAiView();
+    st.field = state.stats.items[id].field;
+    $('stats-field-tabs')?.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.field === st.field);
+    });
+    renderStatsList();
+    showToast('世界統計に追加しました');
   }
 
   /* ---------- クイズ ---------- */

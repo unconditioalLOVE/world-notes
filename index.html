@@ -394,10 +394,12 @@
               <button type="button" role="tab" data-field="other">その他</button>
             </div>
           </div>
-          <div id="stats-item-list" class="rk-cats"></div>
-          <div class="cv-foot edit-only">
-            <button id="btn-add-stat-item" class="primary-btn" type="button">＋ 統計項目を追加</button>
+          <div class="btn-row edit-only" id="stats-list-actions" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+              <button id="btn-add-stat-item" class="primary-btn" type="button">＋ 統計項目を追加</button>
+              <button id="btn-ai-stat" class="chip-btn" type="button">AIに入力を手伝ってもらう</button>
+            </div>
           </div>
+          <div id="stats-item-list" class="rk-cats"></div>
         </div>
         <div id="stats-detail-view" class="hidden">
           <div class="memo-section">
@@ -408,11 +410,56 @@
               <button type="button" data-metric="export">輸出量</button>
               <button type="button" data-metric="import">輸入量</button>
             </div>
+            <div class="btn-row edit-only" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+              <button id="btn-add-stat-rank" class="primary-btn" type="button">＋ 国を追加</button>
+              <button id="btn-edit-stat-meta" class="chip-btn" type="button">項目名・単位などを編集</button>
+            </div>
           </div>
           <div id="stats-rank-list" class="rk-cats"></div>
-          <div class="cv-foot edit-only">
-            <button id="btn-add-stat-rank" class="primary-btn" type="button">＋ 国を追加</button>
-            <button id="btn-edit-stat-meta" class="chip-btn" type="button">項目を編集</button>
+        </div>
+        <div id="stats-ai-view" class="hidden">
+          <div class="memo-section">
+            <button id="btn-ai-back" class="chip-btn" type="button">← 戻る</button>
+            <h2 style="margin:10px 0 8px;font-size:17px;font-weight:700">AIに入力を手伝ってもらう</h2>
+            <p class="note">公的統計に基づくデータのみ取得します。確認できない数値は入れません。</p>
+            <label class="stats-label">カテゴリ</label>
+            <select id="ai-cat" class="stats-input">
+              <option value="農業">農業</option>
+              <option value="畜産業">畜産業</option>
+              <option value="水産業">水産業</option>
+              <option value="鉱工業">鉱工業</option>
+              <option value="エネルギー">エネルギー</option>
+              <option value="貿易">貿易</option>
+              <option value="人口・社会">人口・社会</option>
+              <option value="その他">その他</option>
+            </select>
+            <label class="stats-label">品目</label>
+            <input id="ai-item" class="stats-input" type="text" placeholder="例: 天然ゴム、コーヒー豆" />
+            <label class="stats-label">品種・詳細（任意）</label>
+            <input id="ai-detail" class="stats-input" type="text" placeholder="例: アラビカ種、全品種" />
+            <label class="stats-label">統計の種類（複数可）</label>
+            <div id="ai-metrics" class="stats-check-row">
+              <label><input type="checkbox" value="生産量" checked /> 生産量</label>
+              <label><input type="checkbox" value="輸出量" /> 輸出量</label>
+              <label><input type="checkbox" value="輸入量" /> 輸入量</label>
+              <label><input type="checkbox" value="消費量" /> 消費量</label>
+              <label><input type="checkbox" value="埋蔵量" /> 埋蔵量</label>
+            </div>
+            <label class="stats-label">対象年</label>
+            <input id="ai-year" class="stats-input" type="text" placeholder="最新の公表年" />
+            <div class="btn-row" style="margin-top:14px">
+              <button id="btn-ai-fetch" class="primary-btn" type="button">データを取得</button>
+            </div>
+            <p id="ai-status" class="note" style="margin-top:10px"></p>
+          </div>
+          <div id="ai-preview" class="hidden memo-section">
+            <h3 style="font-size:15px;margin:0 0 8px">プレビュー</h3>
+            <div id="ai-preview-body"></div>
+            <div class="btn-row" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+              <button id="btn-ai-apply" class="primary-btn" type="button">世界統計に追加</button>
+              <button id="btn-ai-refetch" class="chip-btn" type="button">再取得</button>
+              <button id="btn-ai-cancel" class="chip-btn" type="button">キャンセル</button>
+            </div>
           </div>
         </div>
       </div>

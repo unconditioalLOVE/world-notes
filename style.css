@@ -1271,3 +1271,52 @@ input[readonly], textarea[readonly] {
   width: 100%;
   min-width: 240px;
 }
+
+/* パネル下端がドックで切れないように */
+.panel .panel-body {
+  padding-bottom: calc(var(--tabs-h, 90px) + 24px) !important;
+}
+@media (max-width: 1024px) {
+  .panel {
+    bottom: var(--tabs-h, 90px);
+    max-height: calc(100% - var(--tabs-h, 90px) - 4px);
+  }
+  #stats-panel,
+  #quiz-panel,
+  #sync-panel,
+  #layer-panel,
+  #pin-panel,
+  #country-panel,
+  #note-panel {
+    padding-bottom: 0;
+  }
+}
+
+/* 統計AIフォーム */
+.stats-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  margin: 12px 0 4px;
+}
+.stats-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+}
+.stats-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 13px;
+}
+.stats-check-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
