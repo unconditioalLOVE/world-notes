@@ -2225,6 +2225,9 @@
    * パネル
    * ======================================================= */
   function setPanel(name) {
+    if (state.panel === 'quiz' && name !== 'quiz' && typeof clearQuizMapMode === 'function') {
+      try { clearQuizMapMode(); } catch (_) { /* noop */ }
+    }
     state.panel = name;
     ['layer', 'pin', 'country', 'note', 'sync', 'stats', 'quiz'].forEach(n => {
       const el = $(n + '-panel');
@@ -3419,7 +3422,8 @@
     qPool: [],
     qIdx: -1,
     qKey: null,
-    qRevealed: false
+    qRevealed: false,
+    quizMapOn: false
   };
 
   function seedInitialStats() {
@@ -3808,6 +3812,7 @@
   }
 
   function openQuizPanel() {
+    clearQuizMapMode();
     $('quiz-home').classList.remove('hidden');
     $('quiz-play').classList.add('hidden');
     setPanel('quiz');
@@ -3816,6 +3821,7 @@
     $('quiz-stats-count').textContent = `出題可能: ${n} 問 ／ 要復習: ${nr} 問`;
   }
   function closeQuizPanel() {
+    clearQuizMapMode();
     setPanel(null);
   }
 
@@ -3869,10 +3875,24 @@
     const mapV = $('quiz-map-view');
     if (st.qMode === 'map') {
       table.classList.add('hidden');
-      mapV.classList.remove('hidden');
-      renderQuizMap(sorted, q.block);
+      if (mapV) mapV.classList.add('hidden'); // 独立地図は使わない
+      // ホーム地図を色分け（ピン・落書きは非表示）
+      applyQuizMapMode(sorted);
+      // パネル内には短いヒント＋順位リストのみ
+      table.classList.remove('hidden');
+      table.innerHTML = '';
+      table.append(h('p', { class: 'note' }, '地図上の色が濃いほど上位です（背景の地図を参照）'));
+      const ol = h('ol', { class: 'quiz-rank-ol' });
+      sorted.forEach(r => {
+        ol.append(h('li', {}, `${countryNameByKey(r.countryKey)}　${[r.value, q.block.unit].filter(Boolean).join(' ')}`));
+      });
+      table.append(ol);
+      if (q.block.year || q.block.source) {
+        table.append(h('p', { class: 'note' }, [q.block.year && `${q.block.year}年`, q.block.source && `出典: ${q.block.source}`].filter(Boolean).join(' ／ ')));
+      }
     } else {
-      mapV.classList.add('hidden');
+      clearQuizMapMode();
+      if (mapV) mapV.classList.add('hidden');
       table.classList.remove('hidden');
       table.innerHTML = '';
       const tbl = h('table', { class: 'quiz-table' });
@@ -3893,37 +3913,36 @@
     }
   }
 
-  function renderQuizMap(ranks, block) {
-    const svg = d3.select('#quiz-map-svg');
-    svg.selectAll('*').remove();
-    if (typeof feats === 'undefined' || !feats || !feats.length) {
-      svg.append('text').attr('x', 10).attr('y', 20).text('地図データ未読込');
-      return;
-    }
-    const w = 320, h = 180;
-    svg.attr('viewBox', `0 0 ${w} ${h}`);
-    // 既存の path データを簡易スケールして表示（クイズ専用・メイン地図とは分離）
-    const rankMap = Object.fromEntries(ranks.map(r => [r.countryKey, r.rank]));
-    const colors = ['#1a1a1a', '#444', '#666', '#888', '#aaa'];
-    const g = svg.append('g');
-    // 既存の path 文字列をそのまま使い、viewBox で収める
-    feats.forEach(f => {
-      if (!f._d) return;
-      const rk = rankMap[f._key];
-      g.append('path')
-        .attr('d', f._d)
-        .attr('fill', rk ? colors[Math.min(rk - 1, 4)] : '#eee')
-        .attr('stroke', '#ccc')
-        .attr('stroke-width', 0.4);
-    });
-    // メイン地図の投影範囲に合わせてスケール
-    try {
-      const bbox = g.node().getBBox();
-      if (bbox && bbox.width) {
-        const pad = 8;
-        svg.attr('viewBox', `${bbox.x - pad} ${bbox.y - pad} ${bbox.width + pad * 2} ${bbox.height + pad * 2}`);
-      }
-    } catch (_) { /* ignore */ }
+  // クイズ地図モード：メイン地図を使用。ピン・落書き・気候区分は非表示
+  function applyQuizMapMode(ranks) {
+    st.quizMapOn = true;
+    document.getElementById('app')?.classList.add('quiz-map-mode');
+    svgBase.select('.climate').classed('off', true);
+    svgPins.style('display', 'none');
+    [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = 'none'; });
+    const rankMap = Object.fromEntries((ranks || []).map(r => [r.countryKey, r.rank]));
+    const colors = ['#1a1a1a', '#3a3a3a', '#5a5a5a', '#7a7a7a', '#9a9a9a'];
+    svgBase.selectAll('.country')
+      .classed('quiz-rank', d => !!rankMap[d._key])
+      .style('fill', d => {
+        const rk = rankMap[d._key];
+        return rk ? colors[Math.min((rk || 1) - 1, 4)] : '#e8e8e8';
+      });
+  }
+  function clearQuizMapMode() {
+    if (!st.quizMapOn) return;
+    st.quizMapOn = false;
+    document.getElementById('app')?.classList.remove('quiz-map-mode');
+    svgPins.style('display', null);
+    [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = ''; });
+    svgBase.select('.climate').classed('off', !state.showClimate);
+    svgBase.selectAll('.country')
+      .classed('quiz-rank', false)
+      .style('fill', null);
+    if (typeof renderFills === 'function') renderFills();
+    if (typeof renderPins === 'function') renderPins();
+    if (typeof renderNotes === 'function') renderNotes();
+    if (typeof redraw === 'function') try { redraw(); } catch (_) { /* noop */ }
   }
 
   function revealQuiz() {

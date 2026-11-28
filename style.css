@@ -1111,3 +1111,70 @@ input[readonly], textarea[readonly] {
 .stats-metric-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .stats-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; color: #333; border: 1px solid #e0e0e0; }
 .stats-chip.muted { color: #999; background: #fafafa; }
+
+/* ---------- 世界統計：カテゴリ選択・カード見た目 ---------- */
+#stats-field-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 14px;
+  padding: 0 2px;
+}
+#stats-field-tabs button {
+  flex: 1 1 auto;
+  min-width: 4.5em;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+}
+#stats-field-tabs button.on,
+#stats-field-tabs button.active {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+}
+#stats-item-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+#stats-item-list .stats-item-card,
+#stats-item-list .rk-card {
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e6e6e6;
+  background: #fff;
+  min-height: 52px;
+  box-shadow: none;
+}
+#stats-item-list .stats-item-card:active {
+  background: #f5f5f5;
+}
+#stats-metric-tabs button.on,
+#stats-metric-tabs button.active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+.quiz-rank-ol {
+  margin: 8px 0 0 1.2em;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+/* クイズ地図モード中はピン等をCSSでも隠す */
+#app.quiz-map-mode #svg-pins,
+#app.quiz-map-mode #canvas-below,
+#app.quiz-map-mode #canvas-above,
+#app.quiz-map-mode #canvas-top {
+  display: none !important;
+}
+#app.quiz-map-mode .climate {
+  display: none !important;
+}
