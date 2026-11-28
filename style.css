@@ -1239,8 +1239,11 @@ input[readonly], textarea[readonly] {
 }
 #quiz-float-result { margin-top: 10px; }
 
-/* クイズ地図：川・ガイドも含めレイヤー非表示 */
+/* クイズ地図：ユーザーレイヤー・川・ガイド・気候を非表示 */
 #app.quiz-map-mode #svg-lines .rivers,
-#app.quiz-map-mode #svg-guides {
+#app.quiz-map-mode #svg-lines .fills,
+#app.quiz-map-mode #svg-lines .fills-above,
+#app.quiz-map-mode #svg-guides,
+#app.quiz-map-mode #svg-base .climate {
   display: none !important;
 }

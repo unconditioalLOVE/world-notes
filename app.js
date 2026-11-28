@@ -703,8 +703,20 @@
       const r = JSON.parse(localStorage.getItem(QUIZ_REVIEW_KEY));
       state.quizReview = Array.isArray(r) ? r.filter(x => typeof x === 'string') : [];
     } catch { state.quizReview = []; }
-    // 初期データが空、または旧シード（数値ほぼ未入力）なら再シード
-    if (!Object.keys(state.stats.items).length || (state.stats.v || 0) < 2) seedInitialStats();
+    // 項目が空、または旧シードで数値がほぼ空のときだけシード（手入力があれば保持）
+    const itemKeys = Object.keys(state.stats.items || {});
+    if (!itemKeys.length) {
+      seedInitialStats();
+    } else if ((state.stats.v || 0) < 2) {
+      let hasVal = false;
+      Object.values(state.stats.data || {}).forEach(block => {
+        Object.values(block || {}).forEach(m => {
+          (m.ranks || []).forEach(r => { if (r && r.value && String(r.value).trim()) hasVal = true; });
+        });
+      });
+      if (!hasVal) seedInitialStats();
+      else state.stats.v = 2;
+    }
     saved = migrated ? null : signature();
     if (migrated) save();
   }
@@ -2225,15 +2237,26 @@
    * パネル
    * ======================================================= */
   function setPanel(name) {
-    if (state.panel === 'quiz' && name !== 'quiz' && typeof clearQuizMapMode === 'function') {
+    // クイズ地図プレイ中に他パネルへ行く／閉じるときは後始末
+    if (st && st.quizPlaying && name !== 'quiz') {
       try { clearQuizMapMode(); } catch (_) { /* noop */ }
+      try { setQuizPlaying(false); } catch (_) { /* noop */ }
+      $('quiz-float')?.classList.add('hidden');
     }
     state.panel = name;
     ['layer', 'pin', 'country', 'note', 'sync', 'stats', 'quiz'].forEach(n => {
       const el = $(n + '-panel');
-      if (el) el.classList.toggle('hidden', n !== name);
+      if (!el) return;
+      // 地図形式プレイ中はクイズパネル自体を出さない
+      if (n === 'quiz' && st && st.quizPlaying && st.qMode === 'map') {
+        el.classList.add('hidden');
+        return;
+      }
+      el.classList.toggle('hidden', n !== name);
     });
-    $('app').classList.toggle('panel-open', !!name);
+    // 地図形式プレイ中は panel-open にしない（地図を全画面で使う）
+    const panelOpen = !!name && !(st && st.quizPlaying && st.qMode === 'map');
+    $('app').classList.toggle('panel-open', panelOpen);
     $('app').classList.toggle('country-open', name === 'country');
     $('btn-layers').classList.toggle('active', name === 'layer');
     const bAcc = $('btn-account');
@@ -3833,13 +3856,18 @@
   function setQuizPlaying(on) {
     st.quizPlaying = !!on;
     const app = document.getElementById('app');
-    if (app) app.classList.toggle('quiz-playing', !!on);
-    // 機能バー（編集・ピン・国メモ等）を非表示
+    if (app) {
+      app.classList.toggle('quiz-playing', !!on);
+      if (!on) app.classList.remove('quiz-map-mode');
+    }
     const dock = $('dock');
     if (dock) dock.classList.toggle('hidden', !!on);
-    // 表形式プレイ中はパネルの×を隠す（終了ボタンがあるため）
     const closeBtn = $('btn-close-quiz');
-    if (closeBtn) closeBtn.classList.toggle('hidden', !!on && st.qMode !== 'map');
+    // 表形式プレイ中のみ×を隠す
+    if (closeBtn) closeBtn.classList.toggle('hidden', !!on && st.qMode === 'table');
+    if (!on) {
+      $('quiz-float')?.classList.add('hidden');
+    }
     if (typeof syncDock === 'function') syncDock();
   }
 
@@ -3857,27 +3885,30 @@
     setQuizPlaying(true);
     $('quiz-home').classList.add('hidden');
     if (st.qMode === 'map') {
-      // 地図形式：シートなし。フローティングボタンのみ
+      // 地図形式：シートなし・機能バーなし・全画面地図＋フローティングボタン
       $('quiz-panel').classList.add('hidden');
       $('quiz-play').classList.add('hidden');
       $('quiz-float').classList.remove('hidden');
+      $('app').classList.remove('panel-open');
+      state.panel = 'quiz'; // 状態はクイズのまま
     } else {
       $('quiz-play').classList.remove('hidden');
       $('quiz-float').classList.add('hidden');
       $('quiz-panel').classList.remove('hidden');
+      $('app').classList.add('panel-open');
+      state.panel = 'quiz';
     }
+    if (typeof syncDock === 'function') syncDock();
     nextQuiz();
   }
 
   function endQuizToHome() {
     clearQuizMapMode();
     setQuizPlaying(false);
-    $('quiz-float').classList.add('hidden');
-    $('quiz-play').classList.add('hidden');
-    $('quiz-home').classList.remove('hidden');
-    $('quiz-panel').classList.remove('hidden');
-    const closeBtn = $('btn-close-quiz');
-    if (closeBtn) closeBtn.classList.remove('hidden');
+    $('quiz-float')?.classList.add('hidden');
+    $('quiz-play')?.classList.add('hidden');
+    $('quiz-home')?.classList.remove('hidden');
+    $('btn-close-quiz')?.classList.remove('hidden');
     openQuizPanel();
   }
 
@@ -3945,43 +3976,57 @@
     }
   }
 
-  // クイズ地図：メイン地図のみ。レイヤー・川・気候・ピン・落書きはすべて非表示
+  // クイズ地図：メイン地図のみ。ユーザーレイヤー・川・気候・ピン・落書きはすべて非表示
   function applyQuizMapMode(ranks) {
     st.quizMapOn = true;
     document.getElementById('app')?.classList.add('quiz-map-mode');
-    svgBase.select('.climate').classed('off', true);
-    svgLines.select('.rivers').classed('off', true);
-    svgPins.style('display', 'none');
-    [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = 'none'; });
-    // ガイド線も隠す
-    const guides = document.getElementById('svg-guides');
-    if (guides) guides.style.display = 'none';
-    const rankMap = Object.fromEntries((ranks || []).map(r => [r.countryKey, r.rank]));
-    const colors = ['#1a1a1a', '#3a3a3a', '#5a5a5a', '#7a7a7a', '#9a9a9a'];
-    svgBase.selectAll('.country')
-      .classed('quiz-rank', d => !!rankMap[d._key])
-      .style('fill', d => {
-        const rk = rankMap[d._key];
-        return rk ? colors[Math.min((rk || 1) - 1, 4)] : '#e8e8e8';
-      });
+    try {
+      svgBase.select('.climate').classed('off', true);
+      svgLines.select('.rivers').classed('off', true);
+      svgLines.select('.fills').style('display', 'none');
+      svgLines.select('.fills-above').style('display', 'none');
+      svgPins.style('display', 'none');
+      [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = 'none'; });
+      const guides = document.getElementById('svg-guides');
+      if (guides) guides.style.display = 'none';
+      const rankMap = Object.fromEntries((ranks || []).map(r => [r.countryKey, r.rank]));
+      const colors = ['#1a1a1a', '#3a3a3a', '#5a5a5a', '#7a7a7a', '#9a9a9a'];
+      svgBase.selectAll('path.country')
+        .classed('quiz-rank', d => !!(d && rankMap[d._key]))
+        .style('fill', d => {
+          if (!d) return '#e8e8e8';
+          const rk = rankMap[d._key];
+          return rk ? colors[Math.min((rk || 1) - 1, 4)] : '#e8e8e8';
+        });
+    } catch (e) {
+      console.warn('applyQuizMapMode', e);
+    }
   }
   function clearQuizMapMode() {
-    if (!st.quizMapOn && !document.getElementById('app')?.classList.contains('quiz-map-mode')) return;
+    const app = document.getElementById('app');
+    const was = st.quizMapOn || (app && app.classList.contains('quiz-map-mode'));
     st.quizMapOn = false;
-    document.getElementById('app')?.classList.remove('quiz-map-mode');
-    svgPins.style('display', null);
-    [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = ''; });
-    const guides = document.getElementById('svg-guides');
-    if (guides) guides.style.display = '';
-    svgBase.select('.climate').classed('off', !state.showClimate);
-    svgLines.select('.rivers').classed('off', !state.showRivers);
-    svgBase.selectAll('.country')
-      .classed('quiz-rank', false)
-      .style('fill', null);
-    if (typeof renderFills === 'function') renderFills();
-    if (typeof renderPins === 'function') renderPins();
-    if (typeof renderNotes === 'function') renderNotes();
-    if (typeof redraw === 'function') try { redraw(); } catch (_) { /* noop */ }
+    if (app) app.classList.remove('quiz-map-mode');
+    if (!was) return;
+    try {
+      svgPins.style('display', null);
+      [cBelow, cAbove, cTop].forEach(c => { if (c) c.style.display = ''; });
+      const guides = document.getElementById('svg-guides');
+      if (guides) guides.style.display = '';
+      svgLines.select('.fills').style('display', null);
+      svgLines.select('.fills-above').style('display', null);
+      svgBase.select('.climate').classed('off', !state.showClimate);
+      svgLines.select('.rivers').classed('off', !state.showRivers);
+      svgBase.selectAll('path.country')
+        .classed('quiz-rank', false)
+        .style('fill', null);
+      if (typeof renderFills === 'function') renderFills();
+      if (typeof renderPins === 'function') renderPins();
+      if (typeof renderNotes === 'function') renderNotes();
+      if (typeof redraw === 'function') redraw();
+    } catch (e) {
+      console.warn('clearQuizMapMode', e);
+    }
   }
 
   function revealQuiz() {
