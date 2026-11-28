@@ -248,6 +248,12 @@
           <svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
       </div>
+      <div id="rk-tabs" class="hidden">
+        <div class="seg flex1" role="tablist">
+          <button type="button" role="tab" data-tab="note">ノート</button>
+          <button type="button" role="tab" data-tab="rank">世界ランキング</button>
+        </div>
+      </div>
       <div class="panel-body" id="country-body">
         <div class="view-card view-only">
           <h2 id="country-v-title"></h2>
@@ -293,7 +299,8 @@
         <!-- グラフの中身を編集 -->
         <div id="cv-editor" class="edit-only hidden"></div>
       </div>
-      <div class="cv-foot edit-only">
+      <div class="panel-body hidden" id="rank-body"></div>
+      <div class="cv-foot edit-only" id="country-foot">
         <button id="btn-save-country" class="primary-btn" type="button">保存</button>
       </div>
     </div>

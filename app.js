@@ -5,7 +5,7 @@
    * 定数
    * ======================================================= */
   const W = 1000;                       // 投影の基準サイズ（画面サイズに依存しない固定投影）
-  const BUILD = '2026-11-27-v25';
+  const BUILD = '2026-11-28-v26';
   const KEY = 'world-notes-v4';
   const OLD_KEYS = ['world-notes-v3', 'world-notes-v2', 'world-notes-v1'];
   const TAP_DIST = 8;
@@ -439,6 +439,7 @@
    * ======================================================= */
   const state = {
     edit: false,
+    rankings: {},
     tool: 'draw',            // draw | pin | country
     sub: 'pen',              // pen | eraser | country-fill | lasso | text | stamp
     eraser: 'normal',        // normal | stroke | fill | pin | stamp
@@ -627,6 +628,7 @@
       localStorage.setItem(KEY, JSON.stringify({
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order, countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
       }));
+      localStorage.setItem(RANK_KEY, JSON.stringify(state.rankings));
       if (sync.on) markDirty();
     } catch {
       showToast('保存に失敗しました（容量不足の可能性）');
@@ -673,6 +675,8 @@
     } catch { d = null; }
     d = d || {};
     applyData(d);
+    // 世界ランキングはノートと別の保存キー
+    try { state.rankings = cleanRankings(JSON.parse(localStorage.getItem(RANK_KEY))); } catch { state.rankings = {}; }
     if (migrated) save();
   }
 
@@ -712,6 +716,8 @@
         .map(n => ({ id: n.id || 'N' + uid(), lon: n.lon, lat: n.lat, text: n.text }))
     }));
     state.countries = cleanCountries(d.countries);
+    // ランキングを持たないデータ（旧版の端末など）を取り込んでも、手元のランキングは消さない
+    if (d.rankings !== undefined) state.rankings = cleanRankings(d.rankings);
     if (d.guides && typeof d.guides === 'object') {
       state.guides = { equator: d.guides.equator !== false, tropics: d.guides.tropics !== false, pins: d.guides.pins !== false };
     }
@@ -2216,6 +2222,7 @@
     setPanel('country');
     $('country-body').scrollTop = 0;
     renderCanvas();
+    rkOpen();
     renderHighlight();
   }
 
@@ -2264,6 +2271,7 @@
     const hadPin = state.selectedPinId;
     const hadNote = state.selectedNoteId;
     cvReset();
+    rkReset();
     state.selectedPinId = null;
     state.selectedCountryKey = null;
     state.selectedNoteId = null;
@@ -2994,6 +3002,396 @@
         if (w && w !== last) { last = w; if (!cvs.drag && state.panel === 'country') renderCanvas(); }
       }).observe($('cv-wrap'));
     }
+  }
+
+  /* =========================================================
+   * 世界ランキング（国メモの2つ目のタブ）
+   * ノート(state.countries)とは完全に別のデータ(state.rankings)・別の保存キーで管理する
+   * state.rankings[国] = { cats: [カテゴリー名の順], items: [{ id, cat, name, type, rank, value, unit, year, source, note }] }
+   * ======================================================= */
+  const RANK_KEY = 'world-notes-rankings-v1';
+  const RK_PRESETS = [
+    ['農業・林業・水産業', 'コメ 小麦 トウモロコシ 大豆 綿花 サトウキビ コーヒー豆 カカオ豆 茶 天然ゴム パーム油 牛肉 豚肉 鶏肉 牛乳 木材 水産物'],
+    ['エネルギー・鉱産資源', '原油 天然ガス 石炭 ウラン 鉄鉱石 銅 ボーキサイト 金 銀 リン鉱石 レアアース リチウム ニッケル コバルト'],
+    ['工業・製造業', '自動車 鉄鋼 セメント アルミニウム 半導体 電子機器 化学製品 造船 航空機'],
+    ['貿易・経済', '輸出総額 輸入総額 貿易収支 GDP 一人当たりGDP 農産物輸出額 工業製品輸出額 燃料輸出額 サービス輸出額 外国直接投資'],
+    ['人口・社会', '総人口 人口密度 人口増加率 都市人口率 合計特殊出生率 平均寿命 乳児死亡率 農業就業人口割合 観光客受入数 難民受入数']
+  ].map(([name, list]) => ({ name, items: list.split(' ') }));
+  const RK_CATS = RK_PRESETS.map(c => c.name);
+  const RK_TYPES = ['生産量', '輸出量', '輸入量', 'その他'];
+  const RK_GOODS = new Set(RK_CATS.slice(0, 3));      // 品目のカテゴリー（指標の初期値は生産量）
+  const RK_NEW = '__new__';
+  const rk = { tab: 'note', form: null, drag: null, closed: rkLoadClosed() };
+
+  function rkLoadClosed() { try { return new Set(JSON.parse(localStorage.getItem('wn-rk-closed')) || []); } catch { return new Set(); } }
+  function rkSaveClosed() { try { localStorage.setItem('wn-rk-closed', JSON.stringify([...rk.closed])); } catch { /* noop */ } }
+
+  /* ---------- データ ---------- */
+  const rkText = (v, n) => String(v == null ? '' : v).slice(0, n);
+  function rkRankNum(v) {
+    const t = String(v == null ? '' : v).normalize('NFKC').replace(/[,\s位]/g, '');
+    return /^\d{1,4}$/.test(t) && +t > 0 ? +t : null;
+  }
+  function cleanRankings(src) {
+    const out = {};
+    if (!src || typeof src !== 'object') return out;
+    Object.keys(src).forEach(k => {
+      const e = src[k];
+      if (k === '__proto__' || !e || !Array.isArray(e.items)) return;
+      const ids = new Set();
+      const items = e.items.map(it => {
+        if (!it || typeof it !== 'object') return null;
+        const name = rkText(it.name, 60).trim(), cat = rkText(it.cat, 40).trim();
+        if (!name || !cat) return null;
+        let id = typeof it.id === 'string' && /^[\w-]{1,40}$/.test(it.id) ? it.id : 'R' + uid();
+        if (ids.has(id)) id = 'R' + uid();
+        ids.add(id);
+        return {
+          id, cat, name, type: RK_TYPES.includes(it.type) ? it.type : 'その他', rank: rkRankNum(it.rank),
+          value: rkText(it.value, 60), unit: rkText(it.unit, 30), year: rkText(it.year, 20),
+          source: rkText(it.source, 300), note: rkText(it.note, 2000)
+        };
+      }).filter(Boolean);
+      if (!items.length) return;
+      out[k] = { cats: Array.isArray(e.cats) ? e.cats.map(c => rkText(c, 40).trim()) : [], items };
+      rkFixCats(out[k]);
+    });
+    return out;
+  }
+  // 中身のないカテゴリーを除き、抜けているカテゴリーを補う
+  function rkFixCats(e) {
+    const used = new Set(e.items.map(i => i.cat));
+    e.cats = [...new Set(e.cats)].filter(c => used.has(c));
+    used.forEach(c => {
+      if (e.cats.includes(c)) return;
+      // 初期カテゴリーは基本の順を目安に差し込む。独自カテゴリーは末尾
+      const di = RK_CATS.indexOf(c);
+      const at = di < 0 ? -1 : e.cats.findIndex(x => RK_CATS.indexOf(x) > di);
+      if (at < 0) e.cats.push(c); else e.cats.splice(at, 0, c);
+    });
+  }
+  const rkData = () => state.rankings[state.selectedCountryKey] || null;
+  const rkHas = key => !!(state.rankings[key] && state.rankings[key].items.length);
+  const rkLabel = it => (it.type === 'その他' || it.name.endsWith(it.type) ? it.name : it.name + it.type);
+  function rkNumText(v) {
+    const t = v.normalize('NFKC').trim();
+    const m = /^(-?)(\d+)(\.\d+)?$/.exec(t);
+    // 先頭が0の数字などはそのまま。整数部だけ3桁区切りにする
+    return m && !/^0\d/.test(m[2]) ? m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (m[3] || '') : v;
+  }
+
+  /* ---------- タブ ---------- */
+  // 国を開いた直後
+  function rkOpen() { rk.tab = 'note'; rkShowTab(); $('rank-body').scrollTop = 0; }
+  // パネルを閉じる／別の国へ移る時。入力中の内容は、登録できる状態なら保存する
+  function rkReset() {
+    rkEndDrag(false);
+    if (rk.form) {
+      const f = rk.form;
+      if (f.dirty && state.edit) {
+        if (!rkValidate(f.draft)) { rkCommitForm(); showToast('入力中のランキングを保存しました'); }
+        else showToast('未入力の項目があるため、入力中のランキングは保存していません');
+      }
+      rk.form = null;
+    }
+    rk.tab = 'note';
+    rkShowTab();
+    $('rank-body').innerHTML = '';
+  }
+  function rkShowTab() {
+    const key = state.selectedCountryKey;
+    const visible = !!key && (state.edit || rkHas(key));
+    if (!visible) rk.tab = 'note';
+    const rank = rk.tab === 'rank';
+    $('rk-tabs').classList.toggle('hidden', !visible);
+    $('rk-tabs').querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === rk.tab);
+      b.setAttribute('aria-selected', b.dataset.tab === rk.tab);
+    });
+    $('country-body').classList.toggle('hidden', rank);
+    $('country-foot').classList.toggle('hidden', rank);
+    $('rank-body').classList.toggle('hidden', !rank);
+  }
+  function rkSetTab(tab) {
+    if (tab === rk.tab) return;
+    rk.tab = tab;
+    rkShowTab();
+    if (tab === 'rank') renderRank();
+    else if (!cvs.editing) renderCanvas();
+  }
+
+  /* ---------- 一覧 ---------- */
+  const RK_GRIP = '<svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><path d="M5 9h14M5 15h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  function rkGrip(label, kind) {
+    const b = h('button', { class: 'rk-grip', type: 'button', title: 'ドラッグで並び替え', 'aria-label': label + 'を並び替え（ドラッグ、または上下キー）' });
+    b.innerHTML = RK_GRIP;
+    b.addEventListener('pointerdown', ev => rkStartDrag(ev, b.closest(kind === 'cat' ? '.rk-cat' : '.rk-card'), kind));
+    b.addEventListener('keydown', ev => {
+      if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+      ev.preventDefault();
+      const el = b.closest(kind === 'cat' ? '.rk-cat' : '.rk-card');
+      const other = ev.key === 'ArrowUp' ? el.previousElementSibling : el.nextElementSibling;
+      if (!other) return;
+      el.parentNode.insertBefore(el, ev.key === 'ArrowUp' ? other : other.nextElementSibling);
+      rkSaveOrder(); b.focus();
+    });
+    return b;
+  }
+  function rkCard(it) {
+    const rankEl = h('div', { class: 'rk-rank' + (it.rank && it.rank <= 3 ? ' r' + it.rank : '') + (it.rank ? '' : ' none') });
+    if (it.rank) {
+      rankEl.append(h('small', {}, '世界'), h('div', { class: 'rk-pos' }, h('b', { class: it.rank > 99 ? 'long' : '' }, String(it.rank)), h('span', {}, '位')));
+    } else rankEl.append(h('small', {}, '順位'), h('div', { class: 'rk-pos' }, h('b', {}, '—')));
+    const meta = (label, text) => (text.trim() ? h('div', { class: 'rk-meta' }, h('span', {}, label), h('em', {}, text)) : null);
+    const body = h('div', { class: 'rk-info' },
+      h('h4', {}, rkLabel(it)),
+      it.value.trim() || it.unit.trim()
+        ? h('div', { class: 'rk-value' }, h('b', {}, it.value.trim() ? rkNumText(it.value) : '—'), it.unit.trim() ? h('span', {}, it.unit) : null) : null,
+      meta('統計年', it.year), meta('出典', it.source),
+      it.note.trim() ? h('p', { class: 'rk-note' }, it.note) : null);
+    const main = h('div', { class: 'rk-main' }, rankEl, body);
+    const card = h('article', { class: 'rk-card', 'data-id': it.id }, main);
+    if (state.edit) {
+      main.append(rkGrip(rkLabel(it), 'item'));
+      card.append(h('div', { class: 'rk-actions' },
+        h('button', { class: 'chip-btn', type: 'button', 'data-act': 'edit', onclick: () => rkOpenForm(it.id) }, '編集'),
+        h('button', { class: 'chip-btn danger', type: 'button', 'data-act': 'del', onclick: () => rkDelete(it.id) }, '削除')));
+    }
+    return card;
+  }
+  function renderRank() {
+    const root = $('rank-body'), key = state.selectedCountryKey;
+    if (!key) { root.innerHTML = ''; return; }
+    if (rk.form) { rkRenderForm(); return; }
+    const top = root.scrollTop, e = rkData(), f = byKey.get(key);
+    root.innerHTML = '';
+    if (!state.edit) root.append(h('div', { class: 'view-card' }, h('h2', {}, f ? f._name : $('country-v-title').textContent)));
+    else root.append(h('div', { class: 'rk-top' },
+      h('button', { class: 'primary-btn', type: 'button', id: 'rk-add', onclick: () => rkOpenForm(null) }, '＋ ランキングを追加')));
+    if (!e) {
+      root.append(h('p', { class: 'rk-empty' }, 'この国のランキングはまだありません。'));
+      return;
+    }
+    const list = h('div', { class: 'rk-cats' });
+    e.cats.forEach(cat => {
+      const items = e.items.filter(i => i.cat === cat), ck = key + '\n' + cat, open = !rk.closed.has(ck);
+      const toggle = h('button', { class: 'rk-toggle', type: 'button', 'aria-expanded': String(open) },
+        h('i', {}), h('span', {}, cat), h('small', {}, String(items.length)));
+      const section = h('section', { class: 'rk-cat' + (open ? '' : ' closed'), 'data-cat': cat },
+        h('div', { class: 'rk-cathead' }, toggle, state.edit ? rkGrip(cat, 'cat') : null),
+        h('div', { class: 'rk-cards' }, ...items.map(rkCard)));
+      toggle.addEventListener('click', () => {
+        const closed = section.classList.toggle('closed');
+        toggle.setAttribute('aria-expanded', String(!closed));
+        if (closed) rk.closed.add(ck); else rk.closed.delete(ck);
+        rkSaveClosed();
+      });
+      list.append(section);
+    });
+    root.append(list);
+    root.scrollTop = top;
+  }
+
+  function rkDelete(id) {
+    const key = state.selectedCountryKey, e = rkData();
+    const it = e && e.items.find(i => i.id === id);
+    if (!it || !state.edit) return;
+    if (!confirm(`ランキング「${rkLabel(it)}」を削除しますか？`)) return;
+    e.items = e.items.filter(i => i !== it);
+    rkFixCats(e);
+    if (!e.items.length) delete state.rankings[key];
+    save();
+    renderRank();
+    showToast('ランキングを削除しました');
+  }
+
+  /* ---------- 並び替え（ドラッグ＆ドロップ） ---------- */
+  // 画面に見えている順をデータに反映する
+  function rkSaveOrder() {
+    const e = rkData();
+    if (!e || !state.edit) return;
+    const sections = [...$('rank-body').querySelectorAll('.rk-cat')];
+    if (!sections.length) return;
+    e.cats = sections.map(s => s.dataset.cat);
+    const byId = new Map(e.items.map(i => [i.id, i]));
+    const items = sections.flatMap(s => [...s.querySelectorAll('.rk-card')].map(c => byId.get(c.dataset.id))).filter(Boolean);
+    if (items.length === e.items.length) e.items = items;
+    save();
+  }
+  function rkStartDrag(ev, el, kind) {
+    if (!state.edit || rk.drag || !el || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    ev.preventDefault();
+    const root = $('rank-body');
+    const before = el.getBoundingClientRect().top;
+    // カテゴリーの移動中は中身を畳んで、見出しだけで並べ替える
+    if (kind === 'cat') { root.classList.add('rk-catdrag'); root.scrollTop += el.getBoundingClientRect().top - before; }
+    el.classList.add('dragging');
+    rk.drag = { el, pid: ev.pointerId, y: ev.clientY, sy: ev.clientY, next: el.nextElementSibling };
+    try { root.setPointerCapture(ev.pointerId); } catch { /* noop */ }
+    window.addEventListener('pointermove', rkMoveDrag);
+    window.addEventListener('pointerup', rkUpDrag);
+    window.addEventListener('pointercancel', rkCancelDrag);
+    rk.drag.timer = setInterval(() => {
+      const d = rk.drag, r = root.getBoundingClientRect();
+      const dir = d.y > r.bottom - 36 && d.y > d.sy + 8 ? 1 : d.y < r.top + 36 && d.y < d.sy - 8 ? -1 : 0;
+      if (dir) { root.scrollTop += dir * 9; rkReorder(); }
+    }, 30);
+  }
+  function rkReorder() {
+    const d = rk.drag, parent = d.el.parentNode;
+    const next = [...parent.children].find(c => {
+      if (c === d.el) return false;
+      const r = c.getBoundingClientRect();
+      return d.y < r.top + r.height / 2;
+    }) || null;
+    if (next !== d.el.nextElementSibling) parent.insertBefore(d.el, next);
+  }
+  function rkMoveDrag(ev) { if (rk.drag && ev.pointerId === rk.drag.pid) { rk.drag.y = ev.clientY; rkReorder(); } }
+  function rkUpDrag(ev) { if (rk.drag && ev.pointerId === rk.drag.pid) rkEndDrag(true); }
+  function rkCancelDrag(ev) { if (rk.drag && ev.pointerId === rk.drag.pid) rkEndDrag(false); }
+  function rkEndDrag(commit) {
+    const d = rk.drag;
+    if (!d) return;
+    rk.drag = null;
+    clearInterval(d.timer);
+    window.removeEventListener('pointermove', rkMoveDrag);
+    window.removeEventListener('pointerup', rkUpDrag);
+    window.removeEventListener('pointercancel', rkCancelDrag);
+    d.el.classList.remove('dragging');
+    $('rank-body').classList.remove('rk-catdrag');
+    if (commit) rkSaveOrder(); else renderRank();
+  }
+
+  /* ---------- 追加・編集 ---------- */
+  function rkOpenForm(id) {
+    const key = state.selectedCountryKey;
+    if (!key || !state.edit) return;
+    const it = id && rkData().items.find(i => i.id === id);
+    const draft = it ? { ...it, rank: it.rank ? String(it.rank) : '' }
+      : { id: null, cat: RK_CATS[0], name: '', type: '生産量', rank: '', value: '', unit: '', year: '', source: '', note: '' };
+    rk.form = { key, draft, dirty: false, typeTouched: !!it, listTop: $('rank-body').scrollTop };
+    rkRenderForm();
+    $('rank-body').scrollTop = 0;
+  }
+  function rkValidate(d) {
+    if (!d.cat.trim()) return 'カテゴリー名を入力してください';
+    if (!d.name.trim()) return '品目・指標名を入力してください';
+    if (String(d.rank).trim() && !rkRankNum(d.rank)) return '世界順位は1以上の整数で入力してください';
+    if (!String(d.rank).trim() && !d.value.trim()) return '世界順位か統計値のどちらかを入力してください';
+    return '';
+  }
+  function rkCommitForm() {
+    const { key, draft } = rk.form;
+    const d = {
+      id: draft.id || 'R' + uid(), cat: draft.cat.trim(), name: draft.name.trim(), type: draft.type, rank: rkRankNum(draft.rank),
+      value: draft.value.trim(), unit: draft.unit.trim(), year: draft.year.trim(), source: draft.source.trim(), note: draft.note.trim()
+    };
+    const e = state.rankings[key] || (state.rankings[key] = { cats: [], items: [] });
+    const i = e.items.findIndex(x => x.id === d.id);
+    if (i < 0) e.items.push(d);
+    else if (e.items[i].cat === d.cat) e.items[i] = d;
+    else { e.items.splice(i, 1); e.items.push(d); }       // カテゴリーを変えたら移動先の末尾へ
+    rkFixCats(e);
+    rk.closed.delete(key + '\n' + d.cat); rkSaveClosed();
+    save();
+    return d.id;
+  }
+  function rkSubmit() {
+    if (!rk.form || !state.edit) return;
+    const d = rk.form.draft, err = rkValidate(d);
+    if (err) { showToast(err); return; }
+    const e = state.rankings[rk.form.key];
+    const same = e && e.items.some(x => x.id !== d.id && x.cat === d.cat.trim() && x.name === d.name.trim() && x.type === d.type && x.year === d.year.trim());
+    if (same && !confirm('同じ項目・指標・統計年のランキングがあります。別の項目として保存しますか？')) return;
+    const isNew = !d.id;
+    const id = rkCommitForm();
+    rk.form = null;
+    renderRank();
+    const card = $('rank-body').querySelector(`.rk-card[data-id="${id}"]`);
+    if (card) card.scrollIntoView({ block: 'nearest' });
+    showToast(isNew ? 'ランキングを追加しました' : 'ランキングを保存しました');
+  }
+  function rkCancelForm() {
+    if (!rk.form) return;
+    if (rk.form.dirty && !confirm('入力中の内容を破棄しますか？')) return;
+    const top = rk.form.listTop;
+    rk.form = null;
+    renderRank();
+    $('rank-body').scrollTop = top;
+  }
+  // そのカテゴリーの候補：初期候補＋どこかの国で自分が追加した独自の項目名
+  function rkCandidates(cat) {
+    const p = RK_PRESETS.find(c => c.name === cat);
+    const own = Object.values(state.rankings).flatMap(e => e.items.filter(i => i.cat === cat).map(i => i.name));
+    return [...new Set([...(p ? p.items : []), ...own])];
+  }
+  function rkAllCats() {
+    return [...new Set([...RK_CATS, ...Object.values(state.rankings).flatMap(e => e.cats)])];
+  }
+  function rkRenderForm() {
+    const root = $('rank-body'), f = rk.form, d = f.draft;
+    root.innerHTML = '';
+    const touch = () => { f.dirty = true; };
+    const field = (label, ...kids) => h('div', { class: 'memo-section' }, h('label', {}, label), ...kids);
+    const input = (prop, placeholder, max, extra) => h('input', {
+      type: 'text', id: 'rk-f-' + prop, value: d[prop], placeholder, maxlength: max, autocomplete: 'off', 'aria-label': placeholder, ...(extra || {}),
+      oninput: ev => { d[prop] = ev.target.value; touch(); if (prop === 'name') mark(); }
+    });
+
+    // カテゴリー
+    const cats = rkAllCats();
+    let custom = !cats.includes(d.cat);
+    const catInput = h('input', { type: 'text', id: 'rk-f-newcat', class: custom ? '' : 'hidden', value: custom ? d.cat : '', placeholder: '新しいカテゴリー名', maxlength: 40, 'aria-label': '新しいカテゴリー名', oninput: ev => { d.cat = ev.target.value; touch(); } });
+    const sel = h('select', { id: 'rk-f-cat', 'aria-label': 'カテゴリー' },
+      ...cats.map(c => h('option', { value: c }, c)), h('option', { value: RK_NEW }, '＋ 新しいカテゴリー…'));
+    sel.value = custom ? RK_NEW : d.cat;
+    sel.addEventListener('change', () => {
+      custom = sel.value === RK_NEW;
+      d.cat = custom ? catInput.value : sel.value;
+      catInput.classList.toggle('hidden', !custom);
+      if (!f.typeTouched) setType(RK_GOODS.has(d.cat) ? '生産量' : 'その他');
+      touch(); chips();
+      if (custom) catInput.focus();
+    });
+
+    // 品目・指標名
+    const chipBox = h('div', { class: 'rk-chips' });
+    const mark = () => chipBox.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.textContent === d.name));
+    const nameInput = input('name', '候補から選ぶか、自由に入力', 60);
+    const chips = () => {
+      chipBox.innerHTML = '';
+      rkCandidates(d.cat).forEach(n => chipBox.append(h('button', { type: 'button', onclick: () => { d.name = n; nameInput.value = n; touch(); mark(); } }, n)));
+      chipBox.classList.toggle('hidden', !chipBox.children.length);
+      mark();
+    };
+
+    // 指標の種類
+    const seg = h('div', { class: 'seg flex1', id: 'rk-f-type' });
+    const setType = t => { d.type = t; seg.querySelectorAll('button').forEach(b => { b.classList.toggle('active', b.textContent === t); b.setAttribute('aria-pressed', String(b.textContent === t)); }); };
+    RK_TYPES.forEach(t => seg.append(h('button', { type: 'button', onclick: () => { f.typeTouched = true; touch(); setType(t); } }, t)));
+
+    root.append(
+      h('div', { class: 'cv-edhead' },
+        h('strong', {}, d.id ? 'ランキングを編集' : 'ランキングを追加'),
+        h('button', { class: 'chip-btn', type: 'button', id: 'rk-cancel', onclick: rkCancelForm }, 'キャンセル')),
+      field('カテゴリー', sel, catInput),
+      field('品目・指標名', nameInput, chipBox),
+      field('指標の種類', seg),
+      h('div', { class: 'rk-pair' },
+        field('世界順位', h('div', { class: 'rk-withunit' }, input('rank', '例：1', 6, { inputmode: 'numeric' }), h('span', {}, '位'))),
+        field('統計年', input('year', '例：2025', 20))),
+      h('div', { class: 'rk-pair' },
+        field('統計値', input('value', '例：12500', 60)),
+        field('単位', input('unit', '例：万トン', 30))),
+      field('出典', input('source', '例：FAOSTAT', 300)),
+      field('補足説明（任意）', h('textarea', { id: 'rk-f-note', value: d.note, maxlength: 2000, placeholder: '覚えておきたいことなど', oninput: ev => { d.note = ev.target.value; touch(); } })),
+      h('div', { class: 'rk-submit' }, h('button', { class: 'primary-btn', type: 'button', id: 'rk-save', onclick: rkSubmit }, d.id ? '変更を保存' : '登録する')));
+    chips();
+    setType(d.type);
+  }
+
+  function bindRank() {
+    $('rk-tabs').addEventListener('click', ev => { const b = ev.target.closest('button'); if (b) rkSetTab(b.dataset.tab); });
   }
 
   /* =========================================================
@@ -4076,6 +4474,7 @@
     });
     $('btn-save-country').onclick = () => { if (!state.edit) return; save(); showToast('保存しました'); closeMemo(); };
     bindCanvas();
+    bindRank();
 
     $('btn-close-note').onclick = () => closeMemo();
     $('note-text').addEventListener('input', () => {
@@ -4093,7 +4492,9 @@
     };
     $('btn-export').onclick = () => {
       save();
-      const blob = new Blob([localStorage.getItem(KEY) || '{}'], { type: 'application/json' });
+      const backup = JSON.parse(localStorage.getItem(KEY) || '{}');
+      backup.rankings = state.rankings;
+      const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'world-notes-backup-' + new Date().toISOString().slice(0, 10) + '.json';
@@ -4108,7 +4509,9 @@
         const d = JSON.parse(await f.text());
         if (!d || typeof d !== 'object' || !Array.isArray(d.layers)) throw new Error('bad');
         if (!confirm('現在のデータをバックアップの内容に置き換えますか？')) return;
-        localStorage.setItem(KEY, JSON.stringify(d));
+        const { rankings, ...notes } = d;
+        localStorage.setItem(KEY, JSON.stringify(notes));
+        if (rankings !== undefined) localStorage.setItem(RANK_KEY, JSON.stringify(rankings));   // 古いバックアップならランキングは残す
         lsSet('wn-sync-dirty', '1');          // 復元した内容を次の同期でクラウドへ送る
         location.reload();
       } catch { showToast('バックアップファイルを読み込めませんでした'); }
@@ -4235,7 +4638,7 @@
     /* リアルタイム／自動同期はしない。同期ボタンのみ */
   }
 
-  const hasLocalData = () => state.pins.length || Object.keys(state.countries).length ||
+  const hasLocalData = () => state.pins.length || Object.keys(state.countries).length || Object.keys(state.rankings).length ||
     state.layers.some(l => l.strokes.length || l.fills.length || l.stamps.length || l.texts.length || l.notes.length);
 
   async function push() {
@@ -4249,7 +4652,8 @@
       // 全角などは \uXXXX に（チャンク分割で文字が壊れないよう純ASCIIにする）
       const payload = {
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order,
-        countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
+        countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate,
+        rankings: state.rankings
       };
       const str = JSON.stringify(payload)
         .replace(/[\u007f-\uffff]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
@@ -4307,6 +4711,7 @@
       try { if (typeof mcache !== 'undefined' && mcache.clear) mcache.clear(); } catch (e) {}
       if (typeof invalidateStrokeCache === 'function') invalidateStrokeCache();
       applyData(d);
+      lsSet(RANK_KEY, JSON.stringify(state.rankings));
       lsSet(KEY, JSON.stringify({
         v: 5, pins: state.pins, layers: state.layers, folders: state.folders, order: state.order,
         countries: state.countries, guides: state.guides, showRivers: state.showRivers, showClimate: state.showClimate
